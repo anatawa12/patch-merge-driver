@@ -1,0 +1,10 @@
+[package]
+name = "patch-merge-driver"
+version = "0.1.0"
+edition = "2021"
+authors = ['anatawa12']
+description = "The merge driver for patch file."
+
+[dependencies]
+clap = { version = "3", features = ['derive'] }
+home = "0.5"
