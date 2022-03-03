@@ -110,7 +110,7 @@ pub(crate) fn main(options: &Options) {
     call_git_config(
         &target,
         &format!("merge.{}.driver", driver_name),
-        &format!("'{}' merge %O %A %B %L", escaped_executable),
+        &format!("'{}' merge -- %O %A %B %L", escaped_executable),
     )
     .expect("failed to call git config");
 
