@@ -16,8 +16,6 @@ struct Command {
 
 #[derive(Parser)]
 struct GlobalOptions {
-    #[clap(subcommand)]
-    command: Commands,
 }
 
 #[derive(Subcommand)]
