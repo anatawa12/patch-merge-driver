@@ -51,6 +51,42 @@ impl SliceExt for str {
     }
 }
 
+pub(crate) trait StrExt {
+    fn lines_with_newline(&self) -> LinesWithNewline;
+}
+
+impl StrExt for str {
+    fn lines_with_newline(&self) -> LinesWithNewline {
+        LinesWithNewline { buf: self }
+    }
+}
+
+pub(crate) struct LinesWithNewline<'a> {
+    buf: &'a str,
+}
+
+impl<'a> Iterator for LinesWithNewline<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.buf.find('\n') {
+            // if it reached end of text, returns none
+            None if self.buf.is_empty() => None,
+            None => {
+                let buf = self.buf;
+                self.buf = "";
+                Some(buf)
+            }
+            Some(i) => {
+                // SAFETY: the '\n' is in one byte so +1 is safe
+                let (line, rest) = self.buf.split_at(i + 1);
+                self.buf = rest;
+                Some(line)
+            }
+        }
+    }
+}
+
 pub(crate) fn read_fully(f: &mut File, buf: &mut [u8]) -> std::io::Result<usize> {
     let mut start = 0;
     while start < buf.len() {

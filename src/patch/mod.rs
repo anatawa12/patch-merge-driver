@@ -11,6 +11,7 @@ use crate::patch::context::ContextPatch;
 use crate::patch::normal::NormalPatch;
 use crate::patch::unified::UnifiedPatch;
 use crate::patch::HankErrorKind::{EmptyLine, InvalidIndicator};
+use crate::util::{LinesWithNewline, StrExt};
 use std::str::FromStr;
 use std::{fmt, io};
 use DiffParseError::*;
@@ -20,6 +21,15 @@ use HankErrorKind::NoHankBody;
 pub(crate) struct PatchParser<'a, I: Iterator<Item = &'a str>> {
     iter: I,
     prev: Option<&'a str>,
+}
+
+impl<'a> PatchParser<'a, LinesWithNewline<'a>> {
+    pub(crate) fn from_str(str: &'a str) -> Self {
+        Self {
+            iter: str.lines_with_newline(),
+            prev: None,
+        }
+    }
 }
 
 impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
