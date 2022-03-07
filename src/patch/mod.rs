@@ -17,27 +17,26 @@ use DiffParseError::*;
 use Format::*;
 use HankErrorKind::NoHankBody;
 
-pub(crate) struct PatchParser<I, V> {
+pub(crate) struct PatchParser<'a, I: Iterator<Item = &'a str>> {
     iter: I,
-    prev: Option<V>,
+    prev: Option<&'a str>,
 }
 
-impl<I: Iterator<Item = Result<V, E>>, V, E> PatchParser<I, V> {
-    pub(crate) fn new(iter: I) -> PatchParser<I, V> {
+impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
+    pub(crate) fn new(iter: I) -> Self {
         Self { iter, prev: None }
     }
 
-    pub(super) fn peek(&mut self) -> Result<Option<&V>, E> {
+    pub(super) fn peek(&mut self) -> Option<&'a str> {
         match self.prev {
-            Some(ref v) => Ok(Some(v)),
+            Some(ref v) => Some(v),
             None => match self.iter.next() {
-                None => Ok(None),
-                Some(Err(e)) => Err(e),
-                Some(Ok(v)) => {
+                None => None,
+                Some(v) => {
                     self.prev = Some(v);
 
                     match self.prev {
-                        Some(ref v) => Ok(Some(v)),
+                        Some(ref v) => Some(v),
                         None => unsafe { std::hint::unreachable_unchecked() },
                     }
                 }
@@ -45,31 +44,21 @@ impl<I: Iterator<Item = Result<V, E>>, V, E> PatchParser<I, V> {
         }
     }
 
-    pub(super) fn peek_copied(&mut self) -> Result<Option<V>, E>
-    where
-        V: Copy,
-    {
-        self.peek().map(|x| x.copied())
-    }
-
-    pub(super) fn next(&mut self) -> Result<Option<V>, E> {
+    pub(super) fn next(&mut self) -> Option<&'a str> {
         match self.prev.take() {
-            Some(v) => Ok(Some(v)),
+            Some(v) => Some(v),
             None => match self.iter.next() {
-                None => Ok(None),
-                Some(Err(e)) => Err(e),
-                Some(Ok(v)) => Ok(Some(v)),
+                None => None,
+                Some(v) => Some(v),
             },
         }
     }
-}
 
-impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
     /// parses patch file which does not know which format the patch file is
-    pub(crate) fn parse(&mut self) -> Result<Patch, DiffParseError<E>> {
+    pub(crate) fn parse(&mut self) -> Result<Patch, DiffParseError> {
         let mut comment: Vec<&'a str> = vec![];
         let mut starts_last_line = false;
-        while let Some(line) = self.peek_copied()? {
+        while let Some(line) = self.peek() {
             if line.starts_with("@@ -") {
                 return Ok(Patch::Unified(self.parse_unified0(Some(comment))?));
             }
@@ -82,7 +71,7 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
             }
 
             comment.push(line);
-            self.next().ok();
+            self.next();
 
             starts_last_line = line.starts_with("********");
         }
@@ -130,17 +119,16 @@ pub(crate) enum HankErrorKind {
 }
 
 #[derive(Debug)]
-pub(crate) enum DiffParseError<E> {
+pub(crate) enum DiffParseError {
     InvalidHeader(Format), // TODO: more error kinds for header
     InvalidHank(Format, HankErrorKind),
-    IoError(E),
     TooManyHankLine,
     UnexpectedEof,
 }
 
-impl<E: fmt::Display + fmt::Debug> std::error::Error for DiffParseError<E> {}
+impl std::error::Error for DiffParseError {}
 
-impl<E: fmt::Display> fmt::Display for DiffParseError<E> {
+impl fmt::Display for DiffParseError {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InvalidHeader(f) => write!(fmt, "invalid {} header", f.name()),
@@ -151,23 +139,15 @@ impl<E: fmt::Display> fmt::Display for DiffParseError<E> {
                 write!(fmt, "invalid {} hank: empty line", f.name())
             }
             InvalidHank(f, NoHankBody) => write!(fmt, "no {} hank body found", f.name()),
-            IoError(e) => fmt::Display::fmt(e, fmt),
             TooManyHankLine => fmt.write_str("too many hank found"),
             UnexpectedEof => fmt.write_str("unexpected EOF"),
         }
     }
 }
 
-impl<E> From<E> for DiffParseError<E> {
-    fn from(e: E) -> Self {
-        IoError(e)
-    }
-}
-
-impl From<DiffParseError<io::Error>> for io::Error {
-    fn from(v: DiffParseError<io::Error>) -> Self {
+impl From<DiffParseError> for io::Error {
+    fn from(v: DiffParseError) -> Self {
         match v {
-            IoError(e) => e,
             e @ InvalidHeader(_) => io::Error::new(io::ErrorKind::InvalidData, e),
             e @ InvalidHank(_, _) => io::Error::new(io::ErrorKind::InvalidData, e),
             e @ TooManyHankLine => io::Error::new(io::ErrorKind::InvalidData, e),

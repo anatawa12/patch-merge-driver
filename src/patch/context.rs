@@ -33,8 +33,8 @@ pub(crate) enum ContextHankLine<'a> {
     Common(&'a str, &'a str),
 }
 
-impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
-    pub(crate) fn parse_context(&mut self) -> Result<ContextPatch<'a>, DiffParseError<E>> {
+impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
+    pub(crate) fn parse_context(&mut self) -> Result<ContextPatch<'a>, DiffParseError> {
         self.parse_context0(None)
     }
 
@@ -44,7 +44,7 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
     pub(in super::super) fn parse_context0(
         &mut self,
         first_info: Option<(Vec<&'a str>, &'a str)>,
-    ) -> Result<ContextPatch<'a>, DiffParseError<E>> {
+    ) -> Result<ContextPatch<'a>, DiffParseError> {
         let mut hanks = vec![];
 
         if let Some((comment, stars)) = first_info {
@@ -55,14 +55,14 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
 
         let mut starts_last_line = false;
 
-        while let Some(line) = self.peek_copied()? {
+        while let Some(line) = self.peek() {
             if starts_last_line && line.starts_with("*** ") {
                 let stars = unsafe { comment.pop().unwrap_unchecked() };
                 hanks.push(self.parse_context_hank(comment, stars)?);
                 comment = vec![];
             } else {
                 comment.push(line);
-                self.next().ok();
+                self.next();
 
                 starts_last_line = line.starts_with("********");
             }
@@ -78,12 +78,12 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
         &mut self,
         comment: Vec<&'a str>,
         stars_line: &'a str,
-    ) -> Result<ContextHank<'a>, DiffParseError<E>> {
+    ) -> Result<ContextHank<'a>, DiffParseError> {
         let (from_line, from_begin, from_end) =
-            parse_context_header(self.next()?.expect("expected context header"))?;
+            parse_context_header(self.next().expect("expected context header"))?;
         let from_lines = self.parse_context_hank_lines(b'-', from_begin, from_end)?;
         let (to_line, to_begin, to_end) =
-            parse_context_header(self.next()?.expect("expected context header"))?;
+            parse_context_header(self.next().expect("expected context header"))?;
         let to_lines = self.parse_context_hank_lines(b'+', to_begin, to_end)?;
 
         if from_lines.is_empty() && to_lines.is_empty() {
@@ -107,13 +107,13 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
         add_del: u8,
         begin: usize,
         end: usize,
-    ) -> Result<Vec<ContextHankLine<'a>>, DiffParseError<E>> {
+    ) -> Result<Vec<ContextHankLine<'a>>, DiffParseError> {
         let line_count = begin - end + 1;
         let mut lines = vec![];
 
         for i in 0..line_count {
             let begin = i == 0;
-            let line = match self.next()? {
+            let line = match self.next() {
                 None if begin => return Ok(vec![]),
                 None => return Err(UnexpectedEof),
                 Some(l) => l,
@@ -159,7 +159,7 @@ fn parse_line<'a>(indicator: &'a str, body: &'a str) -> ContextHankLine<'a> {
     }
 }
 
-fn parse_context_header<E>(header: &str) -> Result<(&str, usize, usize), DiffParseError<E>> {
+fn parse_context_header(header: &str) -> Result<(&str, usize, usize), DiffParseError> {
     let line = header;
     let header = header
         .strip_prefix_while(|x| !x.is_ascii_digit())

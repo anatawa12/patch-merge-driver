@@ -1,4 +1,4 @@
-use crate::patch::DiffParseError::{InvalidHank, InvalidHeader, TooManyHankLine, UnexpectedEof};
+use crate::patch::DiffParseError::{InvalidHank, InvalidHeader, UnexpectedEof};
 use crate::patch::Format::Normal;
 use crate::patch::HankErrorKind::InvalidIndicator;
 use crate::patch::{parse_int_pair, DiffParseError, PatchParser};
@@ -39,16 +39,16 @@ pub enum Command {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NormalHankLine<'a>(pub(crate) &'a str, pub(crate) &'a str);
 
-impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
+impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
     /// parses normal patch. non-normal patch will be parsed as comment or returns error
-    pub(crate) fn parse_normal(&mut self) -> Result<NormalPatch<'a>, DiffParseError<E>> {
+    pub(crate) fn parse_normal(&mut self) -> Result<NormalPatch<'a>, DiffParseError> {
         self.parse_normal0(None)
     }
 
     pub(in super::super) fn parse_normal0(
         &mut self,
         first_comment: Option<Vec<&'a str>>,
-    ) -> Result<NormalPatch<'a>, DiffParseError<E>> {
+    ) -> Result<NormalPatch<'a>, DiffParseError> {
         let mut hanks = vec![];
 
         if let Some(first_comment) = first_comment {
@@ -57,13 +57,13 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
 
         let mut comment: Vec<&'a str> = vec![];
 
-        while let Some(line) = self.peek_copied()? {
+        while let Some(line) = self.peek() {
             if line.starts_with("@@ -") {
                 hanks.push(self.parse_normal_hank(comment)?);
                 comment = vec![];
             } else {
                 comment.push(line);
-                self.next().ok();
+                self.next();
             }
         }
 
@@ -76,12 +76,12 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
     fn parse_normal_hank(
         &mut self,
         comment: Vec<&'a str>,
-    ) -> Result<NormalHank<'a>, DiffParseError<E>> {
-        let header = parse_normal_header(self.next()?.expect("expected normal header"))?;
+    ) -> Result<NormalHank<'a>, DiffParseError> {
+        let header = parse_normal_header(self.next().expect("expected normal header"))?;
 
         let mut from_lines = vec![];
         for _i in 0..=(header.from_begin - header.from_end) {
-            let some = return_if_none!(self.next()?, Err(UnexpectedEof));
+            let some = return_if_none!(self.next(), Err(UnexpectedEof));
 
             let indicator_end = some
                 .char_indices()
@@ -97,14 +97,14 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
             from_lines.push(NormalHankLine(indicator, body));
         }
 
-        let separator = return_if_none!(self.next()?, Err(UnexpectedEof));
+        let separator = return_if_none!(self.next(), Err(UnexpectedEof));
         if !separator.starts_with("---") {
             return Err(InvalidHeader(Normal));
         }
 
         let mut to_lines = vec![];
         for _i in 0..=(header.to_begin - header.to_end) {
-            let some = return_if_none!(self.next()?, Err(UnexpectedEof));
+            let some = return_if_none!(self.next(), Err(UnexpectedEof));
 
             let indicator_end = some
                 .char_indices()
@@ -130,7 +130,7 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
     }
 }
 
-fn parse_normal_header<E>(header: &str) -> Result<NormalHeader, DiffParseError<E>> {
+fn parse_normal_header(header: &str) -> Result<NormalHeader, DiffParseError> {
     let line = header;
     let (from_begin, from_end, header) =
         parse_int_pair(header, |x| x).map_err(|_| InvalidHeader(Normal))?;

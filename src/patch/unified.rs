@@ -35,16 +35,16 @@ pub(crate) enum UnifiedHankLine<'a> {
     Common(&'a str, &'a str),
 }
 
-impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
+impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
     /// parses unified patch. non-unified patch will be parsed as comment or returns error
-    pub(crate) fn parse_unified(&mut self) -> Result<UnifiedPatch<'a>, DiffParseError<E>> {
+    pub(crate) fn parse_unified(&mut self) -> Result<UnifiedPatch<'a>, DiffParseError> {
         self.parse_unified0(None)
     }
 
     pub(in super::super) fn parse_unified0(
         &mut self,
         first_comment: Option<Vec<&'a str>>,
-    ) -> Result<UnifiedPatch<'a>, DiffParseError<E>> {
+    ) -> Result<UnifiedPatch<'a>, DiffParseError> {
         let mut hanks = vec![];
 
         if let Some(first_comment) = first_comment {
@@ -53,13 +53,13 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
 
         let mut comment: Vec<&'a str> = vec![];
 
-        while let Some(line) = self.peek_copied()? {
+        while let Some(line) = self.peek() {
             if line.starts_with("@@ -") {
                 hanks.push(self.parse_unified_hank(comment)?);
                 comment = vec![];
             } else {
                 comment.push(line);
-                self.next().ok();
+                self.next();
             }
         }
 
@@ -72,14 +72,14 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
     fn parse_unified_hank(
         &mut self,
         comment: Vec<&'a str>,
-    ) -> Result<UnifiedHank<'a>, DiffParseError<E>> {
-        let header = parse_unified_header(self.next()?.expect("expected unified header"))?;
+    ) -> Result<UnifiedHank<'a>, DiffParseError> {
+        let header = parse_unified_header(self.next().expect("expected unified header"))?;
         let mut lines = vec![];
         let mut from_read: usize = 0;
         let mut to_read: usize = 0;
 
         loop {
-            let some = return_if_none!(self.next()?, Err(UnexpectedEof));
+            let some = return_if_none!(self.next(), Err(UnexpectedEof));
             if some.starts_with('-') {
                 lines.push(Delete("-", some.split_at(1).1));
                 from_read += 1;
@@ -118,7 +118,7 @@ impl<'a, I: Iterator<Item = Result<&'a str, E>>, E> PatchParser<I, &'a str> {
     }
 }
 
-fn parse_unified_header<E>(header: &str) -> Result<UnifiedHeader, DiffParseError<E>> {
+fn parse_unified_header(header: &str) -> Result<UnifiedHeader, DiffParseError> {
     let line = header;
     let header = header.strip_prefix("@@ -").ok_or(InvalidHeader(Unified))?;
     let (from_offset, from_count, header) =
