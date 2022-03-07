@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod install;
+mod patch;
 mod path;
 mod util;
 

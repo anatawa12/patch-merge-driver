@@ -38,6 +38,19 @@ impl<T> SliceExt for [T] {
     }
 }
 
+impl SliceExt for str {
+    type Item = char;
+
+    fn strip_prefix_while(&self, mut f: impl FnMut(&Self::Item) -> bool) -> Option<&Self> {
+        for (i, v) in self.char_indices() {
+            if !f(&v) {
+                return Some(&self[i..]);
+            }
+        }
+        None
+    }
+}
+
 pub(crate) fn read_fully(f: &mut File, buf: &mut [u8]) -> std::io::Result<usize> {
     let mut start = 0;
     while start < buf.len() {
