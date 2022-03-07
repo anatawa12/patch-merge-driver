@@ -96,6 +96,7 @@ fn scan_int<T: FromStr>(v: &str) -> Result<(T, &str), T::Err> {
     Ok((T::from_str(number)?, tail))
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub(crate) enum Patch<'a> {
     Unified(UnifiedPatch<'a>),
     Context(ContextPatch<'a>),
