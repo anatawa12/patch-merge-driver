@@ -51,30 +51,36 @@ impl SliceExt for str {
     }
 }
 
-pub(crate) trait StrExt {
-    fn lines_with_newline(&self) -> LinesWithNewline;
+pub(crate) trait ByteSliceOrStrExt {
+    fn line_byte_slices_with_newline(&self) -> LineByteSlicesWithNewline;
 }
 
-impl StrExt for str {
-    fn lines_with_newline(&self) -> LinesWithNewline {
-        LinesWithNewline { buf: self }
+impl ByteSliceOrStrExt for str {
+    fn line_byte_slices_with_newline(&self) -> LineByteSlicesWithNewline {
+        LineByteSlicesWithNewline { buf: self.as_bytes() }
     }
 }
 
-pub(crate) struct LinesWithNewline<'a> {
-    buf: &'a str,
+impl ByteSliceOrStrExt for [u8] {
+    fn line_byte_slices_with_newline(&self) -> LineByteSlicesWithNewline {
+        LineByteSlicesWithNewline { buf: self }
+    }
 }
 
-impl<'a> Iterator for LinesWithNewline<'a> {
-    type Item = &'a str;
+pub(crate) struct LineByteSlicesWithNewline<'a> {
+    buf: &'a [u8],
+}
+
+impl<'a> Iterator for LineByteSlicesWithNewline<'a> {
+    type Item = &'a [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.buf.find('\n') {
+        match self.buf.into_iter().position(|&b| b == b'\n') {
             // if it reached end of text, returns none
             None if self.buf.is_empty() => None,
             None => {
                 let buf = self.buf;
-                self.buf = "";
+                self.buf = b"";
                 Some(buf)
             }
             Some(i) => {

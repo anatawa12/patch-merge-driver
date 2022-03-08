@@ -9,18 +9,18 @@ use ContextHankLine::{AddDel, Common, Modified};
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ContextPatch<'a> {
     pub(crate) hanks: Vec<ContextHank<'a>>,
-    pub(crate) tailing_comment: Vec<&'a str>,
+    pub(crate) tailing_comment: Vec<&'a [u8]>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct ContextHank<'a> {
-    pub(crate) comment: Vec<&'a str>,
-    pub(crate) stars_line: &'a str,
-    pub(crate) from_header_line: &'a str,
+    pub(crate) comment: Vec<&'a [u8]>,
+    pub(crate) stars_line: &'a [u8],
+    pub(crate) from_header_line: &'a [u8],
     pub(crate) from_header: (usize, usize),
     /// empty vec if omitted
     pub(crate) from_lines: Vec<ContextHankLine<'a>>,
-    pub(crate) to_header_line: &'a str,
+    pub(crate) to_header_line: &'a [u8],
     pub(crate) to_header: (usize, usize),
     /// empty vec if omitted
     pub(crate) to_lines: Vec<ContextHankLine<'a>>,
@@ -28,12 +28,12 @@ pub(crate) struct ContextHank<'a> {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ContextHankLine<'a> {
-    Modified(&'a str, &'a str),
-    AddDel(&'a str, &'a str),
-    Common(&'a str, &'a str),
+    Modified(&'a [u8], &'a [u8]),
+    AddDel(&'a [u8], &'a [u8]),
+    Common(&'a [u8], &'a [u8]),
 }
 
-impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
+impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
     pub(crate) fn parse_context(&mut self) -> Result<ContextPatch<'a>, DiffParseError> {
         self.parse_context0(None)
     }
@@ -43,7 +43,7 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
     /// parses normal patch. non-normal patch will be parsed as comment or returns error
     pub(in super::super) fn parse_context0(
         &mut self,
-        first_info: Option<(Vec<&'a str>, &'a str)>,
+        first_info: Option<(Vec<&'a [u8]>, &'a [u8])>,
     ) -> Result<ContextPatch<'a>, DiffParseError> {
         let mut hanks = vec![];
 
@@ -51,12 +51,12 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
             hanks.push(self.parse_context_hank(comment, stars)?);
         }
 
-        let mut comment: Vec<&'a str> = vec![];
+        let mut comment: Vec<&'a [u8]> = vec![];
 
         let mut starts_last_line = false;
 
         while let Some(line) = self.peek() {
-            if starts_last_line && line.starts_with("*** ") {
+            if starts_last_line && line.starts_with(b"*** ") {
                 let stars = unsafe { comment.pop().unwrap_unchecked() };
                 hanks.push(self.parse_context_hank(comment, stars)?);
                 comment = vec![];
@@ -64,7 +64,7 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
                 comment.push(line);
                 self.next();
 
-                starts_last_line = line.starts_with("********");
+                starts_last_line = line.starts_with(b"********");
             }
         }
 
@@ -76,8 +76,8 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
 
     fn parse_context_hank(
         &mut self,
-        comment: Vec<&'a str>,
-        stars_line: &'a str,
+        comment: Vec<&'a [u8]>,
+        stars_line: &'a [u8],
     ) -> Result<ContextHank<'a>, DiffParseError> {
         let (from_line, from_begin, from_end) =
             parse_context_header(self.next().expect("expected context header"))?;
@@ -119,10 +119,9 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
                 Some(l) => l,
             };
             let line_full = line;
-            let bytes = line.as_bytes();
-            let first = bytes.get(0);
+            let first = line.get(0);
             let line = if first == Some(&add_del) || matches!(first, Some(b'!' | b' ')) {
-                let sep = match bytes.get(1) {
+                let sep = match line.get(1) {
                     Some(b' ' | b'\t') => 2,
                     None | Some(_) if begin => return break_on_begin(self, line_full),
                     None | Some(_) => 1,
@@ -133,14 +132,14 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
                 unsafe { parse_line(line.get_unchecked(..1), line.get_unchecked(1..)) }
             } else if matches!(first, None) {
                 // '' -> assume indicator as ' ' -> zero length
-                parse_line("", "")
+                parse_line(b"", b"")
             } else {
                 return if begin {
                     break_on_begin(self, line_full)
                 } else {
                     Err(InvalidHank(
                         Context,
-                        InvalidIndicator(line.chars().nth(0).unwrap().into()),
+                        InvalidIndicator(vec![line[0]]),
                     ))
                 };
             };
@@ -149,9 +148,9 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
 
         return Ok(lines);
 
-        fn break_on_begin<'a, I: Iterator<Item = &'a str>>(
+        fn break_on_begin<'a, I: Iterator<Item = &'a [u8]>>(
             this: &mut PatchParser<'a, I>,
-            line: &'a str,
+            line: &'a [u8],
         ) -> Result<Vec<ContextHankLine<'a>>, DiffParseError> {
             assert!(this.prev.is_none());
             this.prev = Some(line);
@@ -160,8 +159,8 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
     }
 }
 
-fn parse_line<'a>(indicator: &'a str, body: &'a str) -> ContextHankLine<'a> {
-    match indicator.as_bytes().get(0) {
+fn parse_line<'a>(indicator: &'a [u8], body: &'a [u8]) -> ContextHankLine<'a> {
+    match indicator.get(0) {
         None | Some(b'\t' | b' ') => Common(indicator, body),
         Some(b'!') => Modified(indicator, body),
         Some(b'+' | b'-') => AddDel(indicator, body),
@@ -169,13 +168,13 @@ fn parse_line<'a>(indicator: &'a str, body: &'a str) -> ContextHankLine<'a> {
     }
 }
 
-fn parse_context_header(header: &str) -> Result<(&str, usize, usize), DiffParseError> {
+fn parse_context_header(header: &[u8]) -> Result<(&[u8], usize, usize), DiffParseError> {
     let line = header;
     let header = header
         .strip_prefix_while(|x| !x.is_ascii_digit())
-        .unwrap_or("");
+        .unwrap_or(b"");
     let (begin, end, _header) =
-        parse_int_pair(header, |x| x).map_err(|_| InvalidHeader(Context))?;
+        parse_int_pair(header, |x| x).ok_or(InvalidHeader(Context))?;
     if begin > end {
         return Err(InvalidHeader(Context));
     }
@@ -184,21 +183,21 @@ fn parse_context_header(header: &str) -> Result<(&str, usize, usize), DiffParseE
 }
 
 fn parse_context_hank_line(
-    header: &str,
+    header: &[u8],
 ) -> (
     /* possible for beginning: */ bool,
-    /* indicator: */ Option<char>,
-    /* indicator: */ &str,
-    /* body: */ &str,
+    /* indicator: */ Option<u8>,
+    /* indicator: */ &[u8],
+    /* body: */ &[u8],
 ) {
-    let mut iter = header.char_indices();
-    let indicator = iter.next().map(|(_, c)| c);
+    let mut iter = header.into_iter().enumerate();
+    let indicator = iter.next().map(|(_, &c)| c);
 
     let for_beginning: bool;
     let indicator_end: usize;
 
     let second = iter.next();
-    if let Some((_, ' ' | '\t')) = second {
+    if let Some((_, b' ' | b'\t')) = second {
         // if the char after indicator is space
         for_beginning = true;
         indicator_end = iter.next().map(|(i, _)| i).unwrap_or(header.len());
@@ -219,81 +218,81 @@ fn parse_context_hank_line(
 #[test]
 fn parse() {
     assert_eq!(
-        PatchParser::from_str(concat!(
-            "*** lao	2002-02-21 23:30:39.942229878 -0800\n",
-            "--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
-            "***************\n",
-            "*** 1,5 ****\n",
-            "- The Way that can be told of is not the eternal Way;\n",
-            "- The name that can be named is not the eternal name.\n",
-            "  The Nameless is the origin of Heaven and Earth;\n",
-            "! The Named is the mother of all things.\n",
-            "  Therefore let there always be non-being,\n",
-            "--- 1,4 ----\n",
-            "  The Nameless is the origin of Heaven and Earth;\n",
-            "! The named is the mother of all things.\n",
-            "!\n",
-            "  Therefore let there always be non-being,\n",
-            "***************\n",
-            "*** 11 ****\n",
-            "--- 10,13 ----\n",
-            "    they have different names.\n",
-            "+ They both may be called deep and profound.\n",
-            "+ Deeper and more profound,\n",
-            "+ The door of all subtleties!\n",
-            "\n",
-        ))
+        PatchParser::new(vec![
+            b"*** lao	2002-02-21 23:30:39.942229878 -0800\n" as &[u8],
+            b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
+            b"***************\n",
+            b"*** 1,5 ****\n",
+            b"- The Way that can be told of is not the eternal Way;\n",
+            b"- The name that can be named is not the eternal name.\n",
+            b"  The Nameless is the origin of Heaven and Earth;\n",
+            b"! The Named is the mother of all things.\n",
+            b"  Therefore let there always be non-being,\n",
+            b"--- 1,4 ----\n",
+            b"  The Nameless is the origin of Heaven and Earth;\n",
+            b"! The named is the mother of all things.\n",
+            b"!\n",
+            b"  Therefore let there always be non-being,\n",
+            b"***************\n",
+            b"*** 11 ****\n",
+            b"--- 10,13 ----\n",
+            b"    they have different names.\n",
+            b"+ They both may be called deep and profound.\n",
+            b"+ Deeper and more profound,\n",
+            b"+ The door of all subtleties!\n",
+            b"\n",
+        ].into_iter())
         .parse_context()
         .unwrap(),
         ContextPatch {
             hanks: vec![
                 ContextHank {
                     comment: vec![
-                        "*** lao	2002-02-21 23:30:39.942229878 -0800\n",
-                        "--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                        b"*** lao	2002-02-21 23:30:39.942229878 -0800\n",
+                        b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
                     ],
-                    stars_line: "***************\n",
-                    from_header_line: "*** 1,5 ****\n",
+                    stars_line: b"***************\n",
+                    from_header_line: b"*** 1,5 ****\n",
                     from_header: (1, 5),
                     from_lines: vec![
                         AddDel(
-                            "- ",
-                            "The Way that can be told of is not the eternal Way;\n"
+                            b"- ",
+                            b"The Way that can be told of is not the eternal Way;\n"
                         ),
                         AddDel(
-                            "- ",
-                            "The name that can be named is not the eternal name.\n"
+                            b"- ",
+                            b"The name that can be named is not the eternal name.\n"
                         ),
-                        Common("  ", "The Nameless is the origin of Heaven and Earth;\n"),
-                        Modified("! ", "The Named is the mother of all things.\n"),
-                        Common("  ", "Therefore let there always be non-being,\n"),
+                        Common(b"  ", b"The Nameless is the origin of Heaven and Earth;\n"),
+                        Modified(b"! ", b"The Named is the mother of all things.\n"),
+                        Common(b"  ", b"Therefore let there always be non-being,\n"),
                     ],
-                    to_header_line: "--- 1,4 ----\n",
+                    to_header_line: b"--- 1,4 ----\n",
                     to_header: (1, 4),
                     to_lines: vec![
-                        Common("  ", "The Nameless is the origin of Heaven and Earth;\n"),
-                        Modified("! ", "The named is the mother of all things.\n"),
-                        Modified("!", "\n"),
-                        Common("  ", "Therefore let there always be non-being,\n"),
+                        Common(b"  ", b"The Nameless is the origin of Heaven and Earth;\n"),
+                        Modified(b"! ", b"The named is the mother of all things.\n"),
+                        Modified(b"!", b"\n"),
+                        Common(b"  ", b"Therefore let there always be non-being,\n"),
                     ]
                 },
                 ContextHank {
                     comment: vec![],
-                    stars_line: "***************\n",
-                    from_header_line: "*** 11 ****\n",
+                    stars_line: b"***************\n",
+                    from_header_line: b"*** 11 ****\n",
                     from_header: (11, 11),
                     from_lines: vec![],
-                    to_header_line: "--- 10,13 ----\n",
+                    to_header_line: b"--- 10,13 ----\n",
                     to_header: (10, 13),
                     to_lines: vec![
-                        Common("  ", "  they have different names.\n"),
-                        AddDel("+ ", "They both may be called deep and profound.\n"),
-                        AddDel("+ ", "Deeper and more profound,\n"),
-                        AddDel("+ ", "The door of all subtleties!\n"),
+                        Common(b"  ", b"  they have different names.\n"),
+                        AddDel(b"+ ", b"They both may be called deep and profound.\n"),
+                        AddDel(b"+ ", b"Deeper and more profound,\n"),
+                        AddDel(b"+ ", b"The door of all subtleties!\n"),
                     ]
                 }
             ],
-            tailing_comment: vec!["\n"],
+            tailing_comment: vec![b"\n"],
         }
     )
 }
@@ -301,81 +300,81 @@ fn parse() {
 #[test]
 fn parse_detext() {
     assert_eq!(
-        PatchParser::from_str(concat!(
-            "*** lao	2002-02-21 23:30:39.942229878 -0800\n",
-            "--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
-            "***************\n",
-            "*** 1,5 ****\n",
-            "- The Way that can be told of is not the eternal Way;\n",
-            "- The name that can be named is not the eternal name.\n",
-            "  The Nameless is the origin of Heaven and Earth;\n",
-            "! The Named is the mother of all things.\n",
-            "  Therefore let there always be non-being,\n",
-            "--- 1,4 ----\n",
-            "  The Nameless is the origin of Heaven and Earth;\n",
-            "! The named is the mother of all things.\n",
-            "!\n",
-            "  Therefore let there always be non-being,\n",
-            "***************\n",
-            "*** 11 ****\n",
-            "--- 10,13 ----\n",
-            "    they have different names.\n",
-            "+ They both may be called deep and profound.\n",
-            "+ Deeper and more profound,\n",
-            "+ The door of all subtleties!\n",
-            "\n",
-        ))
+        PatchParser::new(vec![
+            b"*** lao	2002-02-21 23:30:39.942229878 -0800\n" as &[u8],
+            b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
+            b"***************\n",
+            b"*** 1,5 ****\n",
+            b"- The Way that can be told of is not the eternal Way;\n",
+            b"- The name that can be named is not the eternal name.\n",
+            b"  The Nameless is the origin of Heaven and Earth;\n",
+            b"! The Named is the mother of all things.\n",
+            b"  Therefore let there always be non-being,\n",
+            b"--- 1,4 ----\n",
+            b"  The Nameless is the origin of Heaven and Earth;\n",
+            b"! The named is the mother of all things.\n",
+            b"!\n",
+            b"  Therefore let there always be non-being,\n",
+            b"***************\n",
+            b"*** 11 ****\n",
+            b"--- 10,13 ----\n",
+            b"    they have different names.\n",
+            b"+ They both may be called deep and profound.\n",
+            b"+ Deeper and more profound,\n",
+            b"+ The door of all subtleties!\n",
+            b"\n",
+        ].into_iter())
         .parse()
         .unwrap(),
         super::Patch::Context(ContextPatch {
             hanks: vec![
                 ContextHank {
                     comment: vec![
-                        "*** lao	2002-02-21 23:30:39.942229878 -0800\n",
-                        "--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                        b"*** lao	2002-02-21 23:30:39.942229878 -0800\n",
+                        b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
                     ],
-                    stars_line: "***************\n",
-                    from_header_line: "*** 1,5 ****\n",
+                    stars_line: b"***************\n",
+                    from_header_line: b"*** 1,5 ****\n",
                     from_header: (1, 5),
                     from_lines: vec![
                         AddDel(
-                            "- ",
-                            "The Way that can be told of is not the eternal Way;\n"
+                            b"- ",
+                            b"The Way that can be told of is not the eternal Way;\n"
                         ),
                         AddDel(
-                            "- ",
-                            "The name that can be named is not the eternal name.\n"
+                            b"- ",
+                            b"The name that can be named is not the eternal name.\n"
                         ),
-                        Common("  ", "The Nameless is the origin of Heaven and Earth;\n"),
-                        Modified("! ", "The Named is the mother of all things.\n"),
-                        Common("  ", "Therefore let there always be non-being,\n"),
+                        Common(b"  ", b"The Nameless is the origin of Heaven and Earth;\n"),
+                        Modified(b"! ", b"The Named is the mother of all things.\n"),
+                        Common(b"  ", b"Therefore let there always be non-being,\n"),
                     ],
-                    to_header_line: "--- 1,4 ----\n",
+                    to_header_line: b"--- 1,4 ----\n",
                     to_header: (1, 4),
                     to_lines: vec![
-                        Common("  ", "The Nameless is the origin of Heaven and Earth;\n"),
-                        Modified("! ", "The named is the mother of all things.\n"),
-                        Modified("!", "\n"),
-                        Common("  ", "Therefore let there always be non-being,\n"),
+                        Common(b"  ", b"The Nameless is the origin of Heaven and Earth;\n"),
+                        Modified(b"! ", b"The named is the mother of all things.\n"),
+                        Modified(b"!", b"\n"),
+                        Common(b"  ", b"Therefore let there always be non-being,\n"),
                     ]
                 },
                 ContextHank {
                     comment: vec![],
-                    stars_line: "***************\n",
-                    from_header_line: "*** 11 ****\n",
+                    stars_line: b"***************\n",
+                    from_header_line: b"*** 11 ****\n",
                     from_header: (11, 11),
                     from_lines: vec![],
-                    to_header_line: "--- 10,13 ----\n",
+                    to_header_line: b"--- 10,13 ----\n",
                     to_header: (10, 13),
                     to_lines: vec![
-                        Common("  ", "  they have different names.\n"),
-                        AddDel("+ ", "They both may be called deep and profound.\n"),
-                        AddDel("+ ", "Deeper and more profound,\n"),
-                        AddDel("+ ", "The door of all subtleties!\n"),
+                        Common(b"  ", b"  they have different names.\n"),
+                        AddDel(b"+ ", b"They both may be called deep and profound.\n"),
+                        AddDel(b"+ ", b"Deeper and more profound,\n"),
+                        AddDel(b"+ ", b"The door of all subtleties!\n"),
                     ]
                 }
             ],
-            tailing_comment: vec!["\n"],
+            tailing_comment: vec![b"\n"],
         })
     )
 }

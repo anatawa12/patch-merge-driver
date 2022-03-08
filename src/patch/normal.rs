@@ -1,13 +1,13 @@
 use crate::patch::DiffParseError::{InvalidHank, InvalidHeader, UnexpectedEof};
 use crate::patch::Format::Normal;
 use crate::patch::HankErrorKind::InvalidIndicator;
-use crate::patch::{parse_int_pair, DiffParseError, PatchParser};
+use crate::patch::{parse_int_pair, DiffParseError, PatchParser, is_ascii_digit};
 use crate::return_if_none;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct NormalPatch<'a> {
     pub(crate) hanks: Vec<NormalHank<'a>>,
-    pub(crate) tailing_comment: Vec<&'a str>,
+    pub(crate) tailing_comment: Vec<&'a [u8]>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -19,39 +19,39 @@ pub(crate) enum NormalHank<'a> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct NormalAddHank<'a> {
-    pub(crate) comment: Vec<&'a str>,
-    pub(crate) header_line: &'a str,
+    pub(crate) comment: Vec<&'a [u8]>,
+    pub(crate) header_line: &'a [u8],
     pub(crate) insert_to: usize,
     pub(crate) inserted_begin: usize,
-    pub(crate) separator: Option<&'a str>,
+    pub(crate) separator: Option<&'a [u8]>,
     pub(crate) lines: Vec<NormalHankLine<'a>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct NormalDeleteHank<'a> {
-    pub(crate) comment: Vec<&'a str>,
-    pub(crate) header_line: &'a str,
+    pub(crate) comment: Vec<&'a [u8]>,
+    pub(crate) header_line: &'a [u8],
     pub(crate) delete_begin: usize,
     pub(crate) deleted_at: usize,
     pub(crate) lines: Vec<NormalHankLine<'a>>,
-    pub(crate) separator: Option<&'a str>,
+    pub(crate) separator: Option<&'a [u8]>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct NormalReplaceHank<'a> {
-    pub(crate) comment: Vec<&'a str>,
-    pub(crate) header_line: &'a str,
+    pub(crate) comment: Vec<&'a [u8]>,
+    pub(crate) header_line: &'a [u8],
     pub(crate) from_begin: usize,
     pub(crate) to_begin: usize,
     pub(crate) from_lines: Vec<NormalHankLine<'a>>,
-    pub(crate) separator: &'a str,
+    pub(crate) separator: &'a [u8],
     pub(crate) to_lines: Vec<NormalHankLine<'a>>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(crate) struct NormalHankLine<'a>(pub(crate) &'a str, pub(crate) &'a str);
+pub(crate) struct NormalHankLine<'a>(pub(crate) &'a [u8], pub(crate) &'a [u8]);
 
-impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
+impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
     /// parses normal patch. non-normal patch will be parsed as comment or returns error
     pub(crate) fn parse_normal(&mut self) -> Result<NormalPatch<'a>, DiffParseError> {
         self.parse_normal0(None)
@@ -59,7 +59,7 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
 
     pub(in super::super) fn parse_normal0(
         &mut self,
-        first_comment: Option<Vec<&'a str>>,
+        first_comment: Option<Vec<&'a [u8]>>,
     ) -> Result<NormalPatch<'a>, DiffParseError> {
         let mut hanks = vec![];
 
@@ -67,13 +67,12 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
             hanks.push(self.parse_normal_hank(first_comment)?);
         }
 
-        let mut comment: Vec<&'a str> = vec![];
+        let mut comment: Vec<&'a [u8]> = vec![];
 
         while let Some(line) = self.peek() {
             if line
-                .chars()
-                .nth(0)
-                .map(|x| x.is_ascii_digit())
+                .get(0)
+                .map(|&x| is_ascii_digit(x))
                 .unwrap_or(false)
             {
                 hanks.push(self.parse_normal_hank(comment)?);
@@ -92,7 +91,7 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
 
     fn parse_normal_hank(
         &mut self,
-        comment: Vec<&'a str>,
+        comment: Vec<&'a [u8]>,
     ) -> Result<NormalHank<'a>, DiffParseError> {
         let header = parse_normal_header(self.next().expect("expected normal header"))?;
 
@@ -113,12 +112,12 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
                 let from_lines = self.parse_hank_body(header.from, b'<')?;
                 let separator = match self.peek() {
                     None => return Err(UnexpectedEof),
-                    Some(line) if line.starts_with("---") => {
+                    Some(line) if line.starts_with(b"---") => {
                         self.next();
                         line
                     }
                     Some(line) => {
-                        return Err(InvalidHank(Normal, InvalidIndicator(line.to_string())))
+                        return Err(InvalidHank(Normal, InvalidIndicator(line.to_owned())))
                     }
                 };
                 let to_lines = self.parse_hank_body(header.to, b'>')?;
@@ -149,12 +148,12 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
         return Ok(hank);
     }
 
-    fn parse_optional_separator(&mut self) -> Option<&'a str> {
+    fn parse_optional_separator(&mut self) -> Option<&'a [u8]> {
         match self.peek() {
             None => None,
             Some(line) => {
-                if line.starts_with("---") {
-                    // if the line starts with "---", the line is a separator.
+                if line.starts_with(b"---") {
+                    // if the line starts with b"---", the line is a separator.
                     self.next();
                     Some(line)
                 } else {
@@ -175,7 +174,7 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
         for _i in 0..=(end - begin) {
             let some = return_if_none!(self.next(), Err(UnexpectedEof));
 
-            let (indicator, body) = match some.as_bytes() {
+            let (indicator, body) = match some {
                 [b, b' ' | b'\t', ..] if *b == char => some.split_at(2),
                 _ => return Err(InvalidHank(Normal, InvalidIndicator(some.into()))),
             };
@@ -187,11 +186,11 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
     }
 }
 
-fn parse_normal_header(header: &str) -> Result<NormalHeader, DiffParseError> {
+fn parse_normal_header(header: &[u8]) -> Result<NormalHeader, DiffParseError> {
     let line = header;
     let (from_begin, from_end, header) =
-        parse_int_pair(header, |x| x).map_err(|_| InvalidHeader(Normal))?;
-    let cmd = match return_if_none!(header.as_bytes().get(0), Err(InvalidHeader(Normal))) {
+        parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
+    let cmd = match return_if_none!(header.get(0), Err(InvalidHeader(Normal))) {
         b'a' => Command::Addition,
         b'c' => Command::Replace,
         b'd' => Command::Deletion,
@@ -199,7 +198,7 @@ fn parse_normal_header(header: &str) -> Result<NormalHeader, DiffParseError> {
     };
     let header = &header[1..];
     let (to_begin, to_end, _header) =
-        parse_int_pair(header, |x| x).map_err(|_| InvalidHeader(Normal))?;
+        parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
 
     match cmd {
         Command::Addition => {
@@ -229,7 +228,7 @@ fn parse_normal_header(header: &str) -> Result<NormalHeader, DiffParseError> {
 
 #[derive(Debug, Eq, PartialEq)]
 struct NormalHeader<'a> {
-    line: &'a str,
+    line: &'a [u8],
     from: (usize, usize),
     cmd: Command,
     to: (usize, usize),
@@ -248,19 +247,19 @@ fn parse() {
     assert_eq!(
         PatchParser::new(
             vec![
-                "1,2d0\n",
-                "< The Way that can be told of is not the eternal Way;\n",
-                "< The name that can be named is not the eternal name.\n",
-                "4c2,3\n",
-                "< The Named is the mother of all things.\n",
-                "---\n",
-                "> The named is the mother of all things.\n",
-                "> \n",
-                "11a11,13\n",
-                "> They both may be called deep and profound.\n",
-                "> Deeper and more profound,\n",
-                "> The door of all subtleties!\n",
-                "\n",
+                b"1,2d0\n" as &[u8],
+                b"< The Way that can be told of is not the eternal Way;\n",
+                b"< The name that can be named is not the eternal name.\n",
+                b"4c2,3\n",
+                b"< The Named is the mother of all things.\n",
+                b"---\n",
+                b"> The named is the mother of all things.\n",
+                b"> \n",
+                b"11a11,13\n",
+                b"> They both may be called deep and profound.\n",
+                b"> Deeper and more profound,\n",
+                b"> The door of all subtleties!\n",
+                b"\n",
             ]
             .into_iter()
         )
@@ -270,47 +269,47 @@ fn parse() {
             hanks: vec![
                 NormalHank::Delete(NormalDeleteHank {
                     comment: vec![],
-                    header_line: "1,2d0\n",
+                    header_line: b"1,2d0\n",
                     delete_begin: 1,
                     deleted_at: 0,
                     lines: vec![
                         NHL(
-                            "< ",
-                            "The Way that can be told of is not the eternal Way;\n"
+                            b"< ",
+                            b"The Way that can be told of is not the eternal Way;\n"
                         ),
                         NHL(
-                            "< ",
-                            "The name that can be named is not the eternal name.\n"
+                            b"< ",
+                            b"The name that can be named is not the eternal name.\n"
                         ),
                     ],
                     separator: None,
                 }),
                 NormalHank::Replace(NormalReplaceHank {
                     comment: vec![],
-                    header_line: "4c2,3\n",
+                    header_line: b"4c2,3\n",
                     from_begin: 4,
                     to_begin: 2,
-                    from_lines: vec![NHL("< ", "The Named is the mother of all things.\n")],
-                    separator: "---\n",
+                    from_lines: vec![NHL(b"< ", b"The Named is the mother of all things.\n")],
+                    separator: b"---\n",
                     to_lines: vec![
-                        NHL("> ", "The named is the mother of all things.\n"),
-                        NHL("> ", "\n"),
+                        NHL(b"> ", b"The named is the mother of all things.\n"),
+                        NHL(b"> ", b"\n"),
                     ]
                 }),
                 NormalHank::Add(NormalAddHank {
                     comment: vec![],
-                    header_line: "11a11,13\n",
+                    header_line: b"11a11,13\n",
                     insert_to: 11,
                     inserted_begin: 11,
                     separator: None,
                     lines: vec![
-                        NHL("> ", "They both may be called deep and profound.\n"),
-                        NHL("> ", "Deeper and more profound,\n"),
-                        NHL("> ", "The door of all subtleties!\n"),
+                        NHL(b"> ", b"They both may be called deep and profound.\n"),
+                        NHL(b"> ", b"Deeper and more profound,\n"),
+                        NHL(b"> ", b"The door of all subtleties!\n"),
                     ]
                 }),
             ],
-            tailing_comment: vec!["\n"],
+            tailing_comment: vec![b"\n"],
         }
     )
 }
@@ -321,19 +320,19 @@ fn parse_detect() {
     assert_eq!(
         PatchParser::new(
             vec![
-                "1,2d0\n",
-                "< The Way that can be told of is not the eternal Way;\n",
-                "< The name that can be named is not the eternal name.\n",
-                "4c2,3\n",
-                "< The Named is the mother of all things.\n",
-                "---\n",
-                "> The named is the mother of all things.\n",
-                "> \n",
-                "11a11,13\n",
-                "> They both may be called deep and profound.\n",
-                "> Deeper and more profound,\n",
-                "> The door of all subtleties!\n",
-                "\n",
+                b"1,2d0\n" as &[u8],
+                b"< The Way that can be told of is not the eternal Way;\n",
+                b"< The name that can be named is not the eternal name.\n",
+                b"4c2,3\n",
+                b"< The Named is the mother of all things.\n",
+                b"---\n",
+                b"> The named is the mother of all things.\n",
+                b"> \n",
+                b"11a11,13\n",
+                b"> They both may be called deep and profound.\n",
+                b"> Deeper and more profound,\n",
+                b"> The door of all subtleties!\n",
+                b"\n",
             ]
             .into_iter()
         )
@@ -343,47 +342,47 @@ fn parse_detect() {
             hanks: vec![
                 NormalHank::Delete(NormalDeleteHank {
                     comment: vec![],
-                    header_line: "1,2d0\n",
+                    header_line: b"1,2d0\n",
                     delete_begin: 1,
                     deleted_at: 0,
                     lines: vec![
                         NHL(
-                            "< ",
-                            "The Way that can be told of is not the eternal Way;\n"
+                            b"< ",
+                            b"The Way that can be told of is not the eternal Way;\n"
                         ),
                         NHL(
-                            "< ",
-                            "The name that can be named is not the eternal name.\n"
+                            b"< ",
+                            b"The name that can be named is not the eternal name.\n"
                         ),
                     ],
                     separator: None,
                 }),
                 NormalHank::Replace(NormalReplaceHank {
                     comment: vec![],
-                    header_line: "4c2,3\n",
+                    header_line: b"4c2,3\n",
                     from_begin: 4,
                     to_begin: 2,
-                    from_lines: vec![NHL("< ", "The Named is the mother of all things.\n"),],
-                    separator: "---\n",
+                    from_lines: vec![NHL(b"< ", b"The Named is the mother of all things.\n"),],
+                    separator: b"---\n",
                     to_lines: vec![
-                        NHL("> ", "The named is the mother of all things.\n"),
-                        NHL("> ", "\n"),
+                        NHL(b"> ", b"The named is the mother of all things.\n"),
+                        NHL(b"> ", b"\n"),
                     ]
                 }),
                 NormalHank::Add(NormalAddHank {
                     comment: vec![],
-                    header_line: "11a11,13\n",
+                    header_line: b"11a11,13\n",
                     insert_to: 11,
                     inserted_begin: 11,
                     separator: None,
                     lines: vec![
-                        NHL("> ", "They both may be called deep and profound.\n"),
-                        NHL("> ", "Deeper and more profound,\n"),
-                        NHL("> ", "The door of all subtleties!\n"),
+                        NHL(b"> ", b"They both may be called deep and profound.\n"),
+                        NHL(b"> ", b"Deeper and more profound,\n"),
+                        NHL(b"> ", b"The door of all subtleties!\n"),
                     ]
                 }),
             ],
-            tailing_comment: vec!["\n"],
+            tailing_comment: vec![b"\n"],
         })
     )
 }

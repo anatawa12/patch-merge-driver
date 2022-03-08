@@ -11,33 +11,40 @@ use crate::patch::context::ContextPatch;
 use crate::patch::normal::NormalPatch;
 use crate::patch::unified::UnifiedPatch;
 use crate::patch::HankErrorKind::{EmptyLine, InvalidIndicator};
-use crate::util::{LinesWithNewline, StrExt};
+use crate::util::{ByteSliceOrStrExt, LineByteSlicesWithNewline};
 use std::str::FromStr;
-use std::{fmt, io};
+use std::{fmt, io, str};
 use DiffParseError::*;
 use Format::*;
 use HankErrorKind::NoHankBody;
 
-pub(crate) struct PatchParser<'a, I: Iterator<Item = &'a str>> {
+pub(crate) struct PatchParser<'a, I: Iterator<Item = &'a [u8]>> {
     iter: I,
-    prev: Option<&'a str>,
+    prev: Option<&'a [u8]>,
 }
 
-impl<'a> PatchParser<'a, LinesWithNewline<'a>> {
-    pub(crate) fn from_str(str: &'a str) -> Self {
+impl<'a> PatchParser<'a, LineByteSlicesWithNewline<'a>> {
+    pub(crate) fn from_slice(slice: &'a [u8]) -> Self {
         Self {
-            iter: str.lines_with_newline(),
+            iter: slice.line_byte_slices_with_newline(),
+            prev: None,
+        }
+    }
+
+    pub(crate) fn from_str(slice: &'a str) -> Self {
+        Self {
+            iter: slice.line_byte_slices_with_newline(),
             prev: None,
         }
     }
 }
 
-impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
+impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
     pub(crate) fn new(iter: I) -> Self {
         Self { iter, prev: None }
     }
 
-    pub(super) fn peek(&mut self) -> Option<&'a str> {
+    pub(super) fn peek(&mut self) -> Option<&'a [u8]> {
         match self.prev {
             Some(ref v) => Some(v),
             None => match self.iter.next() {
@@ -54,7 +61,7 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
         }
     }
 
-    pub(super) fn next(&mut self) -> Option<&'a str> {
+    pub(super) fn next(&mut self) -> Option<&'a [u8]> {
         match self.prev.take() {
             Some(v) => Some(v),
             None => match self.iter.next() {
@@ -66,34 +73,39 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
 
     /// parses patch file which does not know which format the patch file is
     pub(crate) fn parse(&mut self) -> Result<Patch, DiffParseError> {
-        let mut comment: Vec<&'a str> = vec![];
+        let mut comment: Vec<&'a [u8]> = vec![];
         let mut starts_last_line = false;
         while let Some(line) = self.peek() {
-            if line.starts_with("@@ -") {
+            if line.starts_with(b"@@ -") {
                 return Ok(Patch::Unified(self.parse_unified0(Some(comment))?));
             }
-            if starts_last_line && line.starts_with("*** ") {
+            if starts_last_line && line.starts_with(b"*** ") {
                 let stars = unsafe { comment.pop().unwrap_unchecked() };
                 return Ok(Patch::Context(self.parse_context0(Some((comment, stars)))?));
             }
-            if line.starts_with(|c| char::is_ascii_digit(&c)) {
+            if line.get(0).map(|&b| is_ascii_digit(b)).unwrap_or(false) {
                 return Ok(Patch::Normal(self.parse_normal0(Some(comment))?));
             }
 
             comment.push(line);
             self.next();
 
-            starts_last_line = line.starts_with("********");
+            starts_last_line = line.starts_with(b"********");
         }
 
         Ok(Patch::CommentOnly(comment))
     }
 }
 
-fn scan_int<T: FromStr>(v: &str) -> Result<(T, &str), T::Err> {
-    let end_int = v.find(|x| !char::is_ascii_digit(&x)).unwrap_or(v.len());
+fn scan_int<T: FromStr>(v: &[u8]) -> Option<(T, &[u8])> {
+    let end_int = v.into_iter().position(|&x| !is_ascii_digit(x)).unwrap_or(v.len());
     let (number, tail) = v.split_at(end_int);
-    Ok((T::from_str(number)?, tail))
+    let number = std::str::from_utf8(number).ok()?;
+    Some((T::from_str(number).ok()?, tail))
+}
+
+fn is_ascii_digit(b: u8) -> bool {
+    char::is_ascii_digit(&(b as char))
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -102,7 +114,7 @@ pub(crate) enum Patch<'a> {
     Context(ContextPatch<'a>),
     Normal(NormalPatch<'a>),
     //fallback
-    CommentOnly(Vec<&'a str>),
+    CommentOnly(Vec<&'a [u8]>),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -124,7 +136,7 @@ impl Format {
 
 #[derive(Debug)]
 pub(crate) enum HankErrorKind {
-    InvalidIndicator(String),
+    InvalidIndicator(Vec<u8>),
     EmptyLine,
     NoHankBody,
 }
@@ -144,7 +156,11 @@ impl fmt::Display for DiffParseError {
         match self {
             InvalidHeader(f) => write!(fmt, "invalid {} header", f.name()),
             InvalidHank(f, InvalidIndicator(s)) => {
-                write!(fmt, "invalid {} hank indicator: '{}'", f.name(), s)
+                if let Some(s) = str::from_utf8(s).ok() {
+                    write!(fmt, "invalid {} hank indicator: '{}'", f.name(), s)
+                } else {
+                    write!(fmt, "invalid {} hank indicator: '{:?}'", f.name(), s)
+                }
             }
             InvalidHank(f, EmptyLine) => {
                 write!(fmt, "invalid {} hank: empty line", f.name())
@@ -168,16 +184,16 @@ impl From<DiffParseError> for io::Error {
 }
 
 fn parse_int_pair<T: From<usize>>(
-    header: &str,
+    header: &[u8],
     after_default: impl FnOnce(usize) -> T,
-) -> Result<(usize, T, &str), std::num::ParseIntError> {
+) -> Option<(usize, T, &[u8])> {
     let (first, header) = scan_int::<usize>(header)?;
-    let (second, header) = match header.strip_prefix(",") {
+    let (second, header) = match header.strip_prefix(b",") {
         None => (after_default(first), header),
         Some(header) => {
             let (second, header) = scan_int::<usize>(header)?;
             (second.into(), header)
         }
     };
-    Ok((first, second, header))
+    Some((first, second, header))
 }
