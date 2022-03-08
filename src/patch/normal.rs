@@ -1,7 +1,7 @@
 use crate::patch::DiffParseError::{InvalidHank, InvalidHeader, UnexpectedEof};
 use crate::patch::Format::Normal;
 use crate::patch::HankErrorKind::InvalidIndicator;
-use crate::patch::{parse_int_pair, DiffParseError, PatchParser, is_ascii_digit};
+use crate::patch::{is_ascii_digit, parse_int_pair, DiffParseError, PatchParser};
 use crate::return_if_none;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -70,11 +70,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
         let mut comment: Vec<&'a [u8]> = vec![];
 
         while let Some(line) = self.peek() {
-            if line
-                .get(0)
-                .map(|&x| is_ascii_digit(x))
-                .unwrap_or(false)
-            {
+            if line.get(0).map(|&x| is_ascii_digit(x)).unwrap_or(false) {
                 hanks.push(self.parse_normal_hank(comment)?);
                 comment = vec![];
             } else {
@@ -197,8 +193,7 @@ fn parse_normal_header(header: &[u8]) -> Result<NormalHeader, DiffParseError> {
         _ => return Err(InvalidHeader(Normal)),
     };
     let header = &header[1..];
-    let (to_begin, to_end, _header) =
-        parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
+    let (to_begin, to_end, _header) = parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
 
     match cmd {
         Command::Addition => {

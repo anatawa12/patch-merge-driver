@@ -72,7 +72,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
     }
 
     /// parses patch file which does not know which format the patch file is
-    pub(crate) fn parse(&mut self) -> Result<Patch, DiffParseError> {
+    pub(crate) fn parse(&mut self) -> Result<Patch<'a>, DiffParseError> {
         let mut comment: Vec<&'a [u8]> = vec![];
         let mut starts_last_line = false;
         while let Some(line) = self.peek() {
@@ -93,12 +93,15 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
             starts_last_line = line.starts_with(b"********");
         }
 
-        Ok(Patch::CommentOnly(comment))
+        Ok(Patch::Comment(comment))
     }
 }
 
 fn scan_int<T: FromStr>(v: &[u8]) -> Option<(T, &[u8])> {
-    let end_int = v.into_iter().position(|&x| !is_ascii_digit(x)).unwrap_or(v.len());
+    let end_int = v
+        .into_iter()
+        .position(|&x| !is_ascii_digit(x))
+        .unwrap_or(v.len());
     let (number, tail) = v.split_at(end_int);
     let number = std::str::from_utf8(number).ok()?;
     Some((T::from_str(number).ok()?, tail))
@@ -114,7 +117,18 @@ pub(crate) enum Patch<'a> {
     Context(ContextPatch<'a>),
     Normal(NormalPatch<'a>),
     //fallback
-    CommentOnly(Vec<&'a [u8]>),
+    Comment(Vec<&'a [u8]>),
+}
+
+impl <'a> Patch<'a> {
+    pub(crate) fn format(&self) -> Option<Format> {
+        match self {
+            Patch::Unified(_) => Some(Format::Unified),
+            Patch::Context(_) => Some(Format::Context),
+            Patch::Normal(_) => Some(Format::Normal),
+            Patch::Comment(_) => None,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

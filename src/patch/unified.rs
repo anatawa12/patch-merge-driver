@@ -95,10 +95,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
                 from_read += 1;
                 to_read += 1;
             } else {
-                return Err(InvalidHank(
-                    Unified,
-                    InvalidIndicator(vec![some[0]]),
-                ));
+                return Err(InvalidHank(Unified, InvalidIndicator(vec![some[0]])));
             }
 
             if from_read == header.from_count && to_read == header.to_count {
@@ -189,8 +186,14 @@ fn parse() {
                         tailing: b"\n",
                     },
                     lines: vec![
-                        D(b"-", b"The Way that can be told of is not the eternal Way;\n"),
-                        D(b"-", b"The name that can be named is not the eternal name.\n"),
+                        D(
+                            b"-",
+                            b"The Way that can be told of is not the eternal Way;\n"
+                        ),
+                        D(
+                            b"-",
+                            b"The name that can be named is not the eternal name.\n"
+                        ),
                         C(b" ", b"The Nameless is the origin of Heaven and Earth;\n"),
                         D(b"-", b"The Named is the mother of all things.\n"),
                         A(b"+", b"The named is the mother of all things.\n"),
@@ -272,8 +275,14 @@ fn parse_detect() {
                         tailing: b"\n",
                     },
                     lines: vec![
-                        D(b"-", b"The Way that can be told of is not the eternal Way;\n"),
-                        D(b"-", b"The name that can be named is not the eternal name.\n"),
+                        D(
+                            b"-",
+                            b"The Way that can be told of is not the eternal Way;\n"
+                        ),
+                        D(
+                            b"-",
+                            b"The name that can be named is not the eternal name.\n"
+                        ),
                         C(b" ", b"The Nameless is the origin of Heaven and Earth;\n"),
                         D(b"-", b"The Named is the mother of all things.\n"),
                         A(b"+", b"The named is the mother of all things.\n"),

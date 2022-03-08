@@ -137,10 +137,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
                 return if begin {
                     break_on_begin(self, line_full)
                 } else {
-                    Err(InvalidHank(
-                        Context,
-                        InvalidIndicator(vec![line[0]]),
-                    ))
+                    Err(InvalidHank(Context, InvalidIndicator(vec![line[0]])))
                 };
             };
             lines.push(line);
@@ -173,8 +170,7 @@ fn parse_context_header(header: &[u8]) -> Result<(&[u8], usize, usize), DiffPars
     let header = header
         .strip_prefix_while(|x| !x.is_ascii_digit())
         .unwrap_or(b"");
-    let (begin, end, _header) =
-        parse_int_pair(header, |x| x).ok_or(InvalidHeader(Context))?;
+    let (begin, end, _header) = parse_int_pair(header, |x| x).ok_or(InvalidHeader(Context))?;
     if begin > end {
         return Err(InvalidHeader(Context));
     }
@@ -218,30 +214,33 @@ fn parse_context_hank_line(
 #[test]
 fn parse() {
     assert_eq!(
-        PatchParser::new(vec![
-            b"*** lao	2002-02-21 23:30:39.942229878 -0800\n" as &[u8],
-            b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
-            b"***************\n",
-            b"*** 1,5 ****\n",
-            b"- The Way that can be told of is not the eternal Way;\n",
-            b"- The name that can be named is not the eternal name.\n",
-            b"  The Nameless is the origin of Heaven and Earth;\n",
-            b"! The Named is the mother of all things.\n",
-            b"  Therefore let there always be non-being,\n",
-            b"--- 1,4 ----\n",
-            b"  The Nameless is the origin of Heaven and Earth;\n",
-            b"! The named is the mother of all things.\n",
-            b"!\n",
-            b"  Therefore let there always be non-being,\n",
-            b"***************\n",
-            b"*** 11 ****\n",
-            b"--- 10,13 ----\n",
-            b"    they have different names.\n",
-            b"+ They both may be called deep and profound.\n",
-            b"+ Deeper and more profound,\n",
-            b"+ The door of all subtleties!\n",
-            b"\n",
-        ].into_iter())
+        PatchParser::new(
+            vec![
+                b"*** lao	2002-02-21 23:30:39.942229878 -0800\n" as &[u8],
+                b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                b"***************\n",
+                b"*** 1,5 ****\n",
+                b"- The Way that can be told of is not the eternal Way;\n",
+                b"- The name that can be named is not the eternal name.\n",
+                b"  The Nameless is the origin of Heaven and Earth;\n",
+                b"! The Named is the mother of all things.\n",
+                b"  Therefore let there always be non-being,\n",
+                b"--- 1,4 ----\n",
+                b"  The Nameless is the origin of Heaven and Earth;\n",
+                b"! The named is the mother of all things.\n",
+                b"!\n",
+                b"  Therefore let there always be non-being,\n",
+                b"***************\n",
+                b"*** 11 ****\n",
+                b"--- 10,13 ----\n",
+                b"    they have different names.\n",
+                b"+ They both may be called deep and profound.\n",
+                b"+ Deeper and more profound,\n",
+                b"+ The door of all subtleties!\n",
+                b"\n",
+            ]
+            .into_iter()
+        )
         .parse_context()
         .unwrap(),
         ContextPatch {
@@ -300,30 +299,33 @@ fn parse() {
 #[test]
 fn parse_detext() {
     assert_eq!(
-        PatchParser::new(vec![
-            b"*** lao	2002-02-21 23:30:39.942229878 -0800\n" as &[u8],
-            b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
-            b"***************\n",
-            b"*** 1,5 ****\n",
-            b"- The Way that can be told of is not the eternal Way;\n",
-            b"- The name that can be named is not the eternal name.\n",
-            b"  The Nameless is the origin of Heaven and Earth;\n",
-            b"! The Named is the mother of all things.\n",
-            b"  Therefore let there always be non-being,\n",
-            b"--- 1,4 ----\n",
-            b"  The Nameless is the origin of Heaven and Earth;\n",
-            b"! The named is the mother of all things.\n",
-            b"!\n",
-            b"  Therefore let there always be non-being,\n",
-            b"***************\n",
-            b"*** 11 ****\n",
-            b"--- 10,13 ----\n",
-            b"    they have different names.\n",
-            b"+ They both may be called deep and profound.\n",
-            b"+ Deeper and more profound,\n",
-            b"+ The door of all subtleties!\n",
-            b"\n",
-        ].into_iter())
+        PatchParser::new(
+            vec![
+                b"*** lao	2002-02-21 23:30:39.942229878 -0800\n" as &[u8],
+                b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                b"***************\n",
+                b"*** 1,5 ****\n",
+                b"- The Way that can be told of is not the eternal Way;\n",
+                b"- The name that can be named is not the eternal name.\n",
+                b"  The Nameless is the origin of Heaven and Earth;\n",
+                b"! The Named is the mother of all things.\n",
+                b"  Therefore let there always be non-being,\n",
+                b"--- 1,4 ----\n",
+                b"  The Nameless is the origin of Heaven and Earth;\n",
+                b"! The named is the mother of all things.\n",
+                b"!\n",
+                b"  Therefore let there always be non-being,\n",
+                b"***************\n",
+                b"*** 11 ****\n",
+                b"--- 10,13 ----\n",
+                b"    they have different names.\n",
+                b"+ They both may be called deep and profound.\n",
+                b"+ Deeper and more profound,\n",
+                b"+ The door of all subtleties!\n",
+                b"\n",
+            ]
+            .into_iter()
+        )
         .parse()
         .unwrap(),
         super::Patch::Context(ContextPatch {

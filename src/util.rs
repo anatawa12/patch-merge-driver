@@ -57,7 +57,9 @@ pub(crate) trait ByteSliceOrStrExt {
 
 impl ByteSliceOrStrExt for str {
     fn line_byte_slices_with_newline(&self) -> LineByteSlicesWithNewline {
-        LineByteSlicesWithNewline { buf: self.as_bytes() }
+        LineByteSlicesWithNewline {
+            buf: self.as_bytes(),
+        }
     }
 }
 
