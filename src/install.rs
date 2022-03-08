@@ -149,7 +149,10 @@ fn write_git_attributes(
     if let Some(parent) = attribute_file.parent() {
         create_dir_all(parent)?;
     }
-    let mut file = OpenOptions::new().append(true).create(true).open(attribute_file)?;
+    let mut file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(attribute_file)?;
     write!(file, "\n*.patch merge={}\n", driver_name)?;
     file.flush()?;
     Ok(())
