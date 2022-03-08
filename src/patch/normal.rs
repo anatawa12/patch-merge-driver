@@ -11,29 +11,41 @@ pub(crate) struct NormalPatch<'a> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub(crate) struct NormalHank<'a> {
+pub(crate) enum NormalHank<'a> {
+    Add(NormalAddHank<'a>),
+    Delete(NormalDeleteHank<'a>),
+    Replace(NormalReplaceHank<'a>),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct NormalAddHank<'a> {
     pub(crate) comment: Vec<&'a str>,
-    pub(crate) header: NormalHeader<'a>,
-    pub(crate) from_lines: Vec<NormalHankLine<'a>>,
+    pub(crate) header_line: &'a str,
+    pub(crate) insert_to: usize,
+    pub(crate) inserted_begin: usize,
     pub(crate) separator: Option<&'a str>,
+    pub(crate) lines: Vec<NormalHankLine<'a>>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct NormalDeleteHank<'a> {
+    pub(crate) comment: Vec<&'a str>,
+    pub(crate) header_line: &'a str,
+    pub(crate) delete_begin: usize,
+    pub(crate) deleted_at: usize,
+    pub(crate) lines: Vec<NormalHankLine<'a>>,
+    pub(crate) separator: Option<&'a str>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct NormalReplaceHank<'a> {
+    pub(crate) comment: Vec<&'a str>,
+    pub(crate) header_line: &'a str,
+    pub(crate) from_begin: usize,
+    pub(crate) to_begin: usize,
+    pub(crate) from_lines: Vec<NormalHankLine<'a>>,
+    pub(crate) separator: &'a str,
     pub(crate) to_lines: Vec<NormalHankLine<'a>>,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct NormalHeader<'a> {
-    line: &'a str,
-    from_begin: usize,
-    from_end: usize,
-    cmd: Command,
-    to_begin: usize,
-    to_end: usize,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum Command {
-    Addition,
-    Replace,
-    Deletion,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -84,78 +96,94 @@ impl<'a, I: Iterator<Item = &'a str>> PatchParser<'a, I> {
     ) -> Result<NormalHank<'a>, DiffParseError> {
         let header = parse_normal_header(self.next().expect("expected normal header"))?;
 
-        let mut from_lines = vec![];
-        if header.cmd != Command::Addition {
-            for _i in 0..=(header.from_end - header.from_begin) {
-                let some = return_if_none!(self.next(), Err(UnexpectedEof));
-
-                let indicator_end = some
-                    .char_indices()
-                    .nth(2)
-                    .map(|(i, _)| i)
-                    .unwrap_or(some.len());
-                let (indicator, body) = some.split_at(indicator_end);
-
-                if !matches!(indicator, "< " | "<\t") {
-                    return Err(InvalidHank(Normal, InvalidIndicator(indicator.into())));
-                }
-
-                from_lines.push(NormalHankLine(indicator, body));
+        let hank = match header.cmd {
+            Command::Addition => {
+                let separator = self.parse_optional_separator();
+                let lines = self.parse_hank_body(header.to, b'>')?;
+                NormalHank::Add(NormalAddHank {
+                    comment,
+                    header_line: header.line,
+                    insert_to: header.from.0,
+                    inserted_begin: header.to.0,
+                    separator,
+                    lines,
+                })
             }
-        }
-
-        let separator = match self.peek() {
-            None => {
-                if header.cmd == Command::Replace {
-                    // for replace, separator is required
-                    return Err(UnexpectedEof);
-                } else {
-                    // otherwise, separator is not required; assume as no lines
-                    None
-                }
+            Command::Replace => {
+                let from_lines = self.parse_hank_body(header.from, b'<')?;
+                let separator = match self.peek() {
+                    None => return Err(UnexpectedEof),
+                    Some(line) if line.starts_with("---") => {
+                        self.next();
+                        line
+                    }
+                    Some(line) => {
+                        return Err(InvalidHank(Normal, InvalidIndicator(line.to_string())))
+                    }
+                };
+                let to_lines = self.parse_hank_body(header.to, b'>')?;
+                NormalHank::Replace(NormalReplaceHank {
+                    comment,
+                    header_line: header.line,
+                    from_begin: header.from.0,
+                    to_begin: header.to.0,
+                    from_lines,
+                    separator,
+                    to_lines,
+                })
             }
+            Command::Deletion => {
+                let separator = self.parse_optional_separator();
+                let lines = self.parse_hank_body(header.from, b'<')?;
+                NormalHank::Delete(NormalDeleteHank {
+                    comment,
+                    header_line: header.line,
+                    delete_begin: header.from.0,
+                    deleted_at: header.to.0,
+                    lines,
+                    separator,
+                })
+            }
+        };
+
+        return Ok(hank);
+    }
+
+    fn parse_optional_separator(&mut self) -> Option<&'a str> {
+        match self.peek() {
+            None => None,
             Some(line) => {
                 if line.starts_with("---") {
                     // if the line starts with "---", the line is a separator.
                     self.next();
                     Some(line)
-                } else if header.cmd == Command::Replace {
-                    // for replace, separator is required
-                    return Err(UnexpectedEof);
                 } else {
                     // otherwise, separator is not required; assume as no lines
                     None
                 }
             }
-        };
+        }
+    }
 
-        let mut to_lines = vec![];
-        if header.cmd != Command::Deletion {
-            for _i in 0..=(header.to_end - header.to_begin) {
-                let some = return_if_none!(self.next(), Err(UnexpectedEof));
+    fn parse_hank_body(
+        &mut self,
+        (begin, end): (usize, usize),
+        char: u8,
+    ) -> Result<Vec<NormalHankLine<'a>>, DiffParseError> {
+        let mut lines = vec![];
 
-                let indicator_end = some
-                    .char_indices()
-                    .nth(2)
-                    .map(|(i, _)| i)
-                    .unwrap_or(some.len());
-                let (indicator, body) = some.split_at(indicator_end);
+        for _i in 0..=(end - begin) {
+            let some = return_if_none!(self.next(), Err(UnexpectedEof));
 
-                if !matches!(indicator, "> " | ">\t") {
-                    return Err(InvalidHank(Normal, InvalidIndicator(indicator.into())));
-                }
+            let (indicator, body) = match some.as_bytes() {
+                [b, b' ' | b'\t', ..] if *b == char => some.split_at(2),
+                _ => return Err(InvalidHank(Normal, InvalidIndicator(some.into()))),
+            };
 
-                to_lines.push(NormalHankLine(indicator, body));
-            }
+            lines.push(NormalHankLine(indicator, body));
         }
 
-        return Ok(NormalHank {
-            comment,
-            header,
-            from_lines,
-            separator,
-            to_lines,
-        });
+        Ok(lines)
     }
 }
 
@@ -193,12 +221,25 @@ fn parse_normal_header(header: &str) -> Result<NormalHeader, DiffParseError> {
 
     Ok(NormalHeader {
         line,
-        from_begin,
-        from_end,
+        from: (from_begin, from_end),
         cmd,
-        to_begin,
-        to_end,
+        to: (to_begin, to_end),
     })
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct NormalHeader<'a> {
+    line: &'a str,
+    from: (usize, usize),
+    cmd: Command,
+    to: (usize, usize),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum Command {
+    Addition,
+    Replace,
+    Deletion,
 }
 
 #[test]
@@ -227,17 +268,12 @@ fn parse() {
         .unwrap(),
         NormalPatch {
             hanks: vec![
-                NormalHank {
+                NormalHank::Delete(NormalDeleteHank {
                     comment: vec![],
-                    header: NormalHeader {
-                        line: "1,2d0\n",
-                        from_begin: 1,
-                        from_end: 2,
-                        cmd: Command::Deletion,
-                        to_begin: 0,
-                        to_end: 0
-                    },
-                    from_lines: vec![
+                    header_line: "1,2d0\n",
+                    delete_begin: 1,
+                    deleted_at: 0,
+                    lines: vec![
                         NHL(
                             "< ",
                             "The Way that can be told of is not the eternal Way;\n"
@@ -248,43 +284,31 @@ fn parse() {
                         ),
                     ],
                     separator: None,
-                    to_lines: vec![]
-                },
-                NormalHank {
+                }),
+                NormalHank::Replace(NormalReplaceHank {
                     comment: vec![],
-                    header: NormalHeader {
-                        line: "4c2,3\n",
-                        from_begin: 4,
-                        from_end: 4,
-                        cmd: Command::Replace,
-                        to_begin: 2,
-                        to_end: 3,
-                    },
-                    from_lines: vec![NHL("< ", "The Named is the mother of all things.\n"),],
-                    separator: Some("---\n"),
+                    header_line: "4c2,3\n",
+                    from_begin: 4,
+                    to_begin: 2,
+                    from_lines: vec![NHL("< ", "The Named is the mother of all things.\n")],
+                    separator: "---\n",
                     to_lines: vec![
                         NHL("> ", "The named is the mother of all things.\n"),
                         NHL("> ", "\n"),
                     ]
-                },
-                NormalHank {
+                }),
+                NormalHank::Add(NormalAddHank {
                     comment: vec![],
-                    header: NormalHeader {
-                        line: "11a11,13\n",
-                        from_begin: 11,
-                        from_end: 11,
-                        cmd: Command::Addition,
-                        to_begin: 11,
-                        to_end: 13,
-                    },
-                    from_lines: vec![],
+                    header_line: "11a11,13\n",
+                    insert_to: 11,
+                    inserted_begin: 11,
                     separator: None,
-                    to_lines: vec![
+                    lines: vec![
                         NHL("> ", "They both may be called deep and profound.\n"),
                         NHL("> ", "Deeper and more profound,\n"),
                         NHL("> ", "The door of all subtleties!\n"),
                     ]
-                }
+                }),
             ],
             tailing_comment: vec!["\n"],
         }
@@ -317,17 +341,12 @@ fn parse_detect() {
         .unwrap(),
         super::Patch::Normal(NormalPatch {
             hanks: vec![
-                NormalHank {
+                NormalHank::Delete(NormalDeleteHank {
                     comment: vec![],
-                    header: NormalHeader {
-                        line: "1,2d0\n",
-                        from_begin: 1,
-                        from_end: 2,
-                        cmd: Command::Deletion,
-                        to_begin: 0,
-                        to_end: 0
-                    },
-                    from_lines: vec![
+                    header_line: "1,2d0\n",
+                    delete_begin: 1,
+                    deleted_at: 0,
+                    lines: vec![
                         NHL(
                             "< ",
                             "The Way that can be told of is not the eternal Way;\n"
@@ -338,43 +357,31 @@ fn parse_detect() {
                         ),
                     ],
                     separator: None,
-                    to_lines: vec![]
-                },
-                NormalHank {
+                }),
+                NormalHank::Replace(NormalReplaceHank {
                     comment: vec![],
-                    header: NormalHeader {
-                        line: "4c2,3\n",
-                        from_begin: 4,
-                        from_end: 4,
-                        cmd: Command::Replace,
-                        to_begin: 2,
-                        to_end: 3,
-                    },
+                    header_line: "4c2,3\n",
+                    from_begin: 4,
+                    to_begin: 2,
                     from_lines: vec![NHL("< ", "The Named is the mother of all things.\n"),],
-                    separator: Some("---\n"),
+                    separator: "---\n",
                     to_lines: vec![
                         NHL("> ", "The named is the mother of all things.\n"),
                         NHL("> ", "\n"),
                     ]
-                },
-                NormalHank {
+                }),
+                NormalHank::Add(NormalAddHank {
                     comment: vec![],
-                    header: NormalHeader {
-                        line: "11a11,13\n",
-                        from_begin: 11,
-                        from_end: 11,
-                        cmd: Command::Addition,
-                        to_begin: 11,
-                        to_end: 13,
-                    },
-                    from_lines: vec![],
+                    header_line: "11a11,13\n",
+                    insert_to: 11,
+                    inserted_begin: 11,
                     separator: None,
-                    to_lines: vec![
+                    lines: vec![
                         NHL("> ", "They both may be called deep and profound.\n"),
                         NHL("> ", "Deeper and more profound,\n"),
                         NHL("> ", "The door of all subtleties!\n"),
                     ]
-                }
+                }),
             ],
             tailing_comment: vec!["\n"],
         })
