@@ -141,3 +141,169 @@ fn parse_unified_header(header: &str) -> Result<UnifiedHeader, DiffParseError> {
         tailing,
     })
 }
+
+#[test]
+fn parse() {
+    use self::{Add as A, Common as C, Delete as D};
+    assert_eq!(
+        PatchParser::new(
+            vec![
+                "--- lao	2002-02-21 23:30:39.942229878 -0800\n",
+                "+++ tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                "@@ -1,7 +1,6 @@\n",
+                "-The Way that can be told of is not the eternal Way;\n",
+                "-The name that can be named is not the eternal name.\n",
+                " The Nameless is the origin of Heaven and Earth;\n",
+                "-The Named is the mother of all things.\n",
+                "+The named is the mother of all things.\n",
+                "+\n",
+                " Therefore let there always be non-being,\n",
+                "   so we may see their subtlety,\n",
+                " And let there always be being,\n",
+                "@@ -9,3 +8,6 @@\n",
+                " The two are the same,\n",
+                " But after they are produced,\n",
+                "   they have different names.\n",
+                "+They both may be called deep and profound.\n",
+                "+Deeper and more profound,\n",
+                "+The door of all subtleties!\n",
+                "\n",
+            ]
+            .into_iter()
+        )
+        .parse_unified()
+        .unwrap(),
+        UnifiedPatch {
+            hanks: vec![
+                UnifiedHank {
+                    comment: vec![
+                        "--- lao	2002-02-21 23:30:39.942229878 -0800\n",
+                        "+++ tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                    ],
+                    header: UnifiedHeader {
+                        line: "@@ -1,7 +1,6 @@\n",
+                        from_offset: 1,
+                        from_count: 7,
+                        to_offset: 1,
+                        to_count: 6,
+                        tailing: "\n",
+                    },
+                    lines: vec![
+                        D("-", "The Way that can be told of is not the eternal Way;\n"),
+                        D("-", "The name that can be named is not the eternal name.\n"),
+                        C(" ", "The Nameless is the origin of Heaven and Earth;\n"),
+                        D("-", "The Named is the mother of all things.\n"),
+                        A("+", "The named is the mother of all things.\n"),
+                        A("+", "\n"),
+                        C(" ", "Therefore let there always be non-being,\n"),
+                        C(" ", "  so we may see their subtlety,\n"),
+                        C(" ", "And let there always be being,\n"),
+                    ],
+                },
+                UnifiedHank {
+                    comment: vec![],
+                    header: UnifiedHeader {
+                        line: "@@ -9,3 +8,6 @@\n",
+                        from_offset: 9,
+                        from_count: 3,
+                        to_offset: 8,
+                        to_count: 6,
+                        tailing: "\n",
+                    },
+                    lines: vec![
+                        C(" ", "The two are the same,\n"),
+                        C(" ", "But after they are produced,\n"),
+                        C(" ", "  they have different names.\n"),
+                        A("+", "They both may be called deep and profound.\n"),
+                        A("+", "Deeper and more profound,\n"),
+                        A("+", "The door of all subtleties!\n"),
+                    ],
+                },
+            ],
+            tailing_comment: vec!["\n"],
+        }
+    )
+}
+
+#[test]
+fn parse_detect() {
+    use self::{Add as A, Common as C, Delete as D};
+    assert_eq!(
+        PatchParser::new(
+            vec![
+                "--- lao	2002-02-21 23:30:39.942229878 -0800\n",
+                "+++ tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                "@@ -1,7 +1,6 @@\n",
+                "-The Way that can be told of is not the eternal Way;\n",
+                "-The name that can be named is not the eternal name.\n",
+                " The Nameless is the origin of Heaven and Earth;\n",
+                "-The Named is the mother of all things.\n",
+                "+The named is the mother of all things.\n",
+                "+\n",
+                " Therefore let there always be non-being,\n",
+                "   so we may see their subtlety,\n",
+                " And let there always be being,\n",
+                "@@ -9,3 +8,6 @@\n",
+                " The two are the same,\n",
+                " But after they are produced,\n",
+                "   they have different names.\n",
+                "+They both may be called deep and profound.\n",
+                "+Deeper and more profound,\n",
+                "+The door of all subtleties!\n",
+                "\n",
+            ]
+            .into_iter()
+        )
+        .parse()
+        .unwrap(),
+        super::Patch::Unified(UnifiedPatch {
+            hanks: vec![
+                UnifiedHank {
+                    comment: vec![
+                        "--- lao	2002-02-21 23:30:39.942229878 -0800\n",
+                        "+++ tzu	2002-02-21 23:30:50.442260588 -0800\n",
+                    ],
+                    header: UnifiedHeader {
+                        line: "@@ -1,7 +1,6 @@\n",
+                        from_offset: 1,
+                        from_count: 7,
+                        to_offset: 1,
+                        to_count: 6,
+                        tailing: "\n",
+                    },
+                    lines: vec![
+                        D("-", "The Way that can be told of is not the eternal Way;\n"),
+                        D("-", "The name that can be named is not the eternal name.\n"),
+                        C(" ", "The Nameless is the origin of Heaven and Earth;\n"),
+                        D("-", "The Named is the mother of all things.\n"),
+                        A("+", "The named is the mother of all things.\n"),
+                        A("+", "\n"),
+                        C(" ", "Therefore let there always be non-being,\n"),
+                        C(" ", "  so we may see their subtlety,\n"),
+                        C(" ", "And let there always be being,\n"),
+                    ],
+                },
+                UnifiedHank {
+                    comment: vec![],
+                    header: UnifiedHeader {
+                        line: "@@ -9,3 +8,6 @@\n",
+                        from_offset: 9,
+                        from_count: 3,
+                        to_offset: 8,
+                        to_count: 6,
+                        tailing: "\n",
+                    },
+                    lines: vec![
+                        C(" ", "The two are the same,\n"),
+                        C(" ", "But after they are produced,\n"),
+                        C(" ", "  they have different names.\n"),
+                        A("+", "They both may be called deep and profound.\n"),
+                        A("+", "Deeper and more profound,\n"),
+                        A("+", "The door of all subtleties!\n"),
+                    ],
+                },
+            ],
+            tailing_comment: vec!["\n"],
+        })
+    )
+}
