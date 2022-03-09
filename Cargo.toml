@@ -8,3 +8,4 @@ description = "The merge driver for patch file."
 [dependencies]
 clap = { version = "3", features = ['derive'] }
 home = "0.5"
+memmap = "0.7"

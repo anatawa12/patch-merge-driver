@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod install;
+mod merge;
 mod patch;
 mod path;
 mod util;
@@ -16,17 +17,18 @@ struct Command {
 }
 
 #[derive(Parser)]
-struct GlobalOptions {
-}
+struct GlobalOptions {}
 
 #[derive(Subcommand)]
 enum Commands {
     Install(install::Options),
+    Merge(merge::Options),
 }
 
 fn main() {
     let parsed: Command = Command::parse();
     match parsed.command {
         Commands::Install(ref opt) => install::main(opt),
+        Commands::Merge(ref opt) => merge::main(opt),
     }
 }
