@@ -25,17 +25,11 @@ pub(crate) struct PatchParser<'a, I: Iterator<Item = &'a [u8]>> {
 
 impl<'a> PatchParser<'a, LineByteSlicesWithNewline<'a>> {
     pub(crate) fn from_slice(slice: &'a [u8]) -> Self {
-        Self {
-            iter: slice.line_byte_slices_with_newline(),
-            prev: None,
-        }
+        Self::new(slice.line_byte_slices_with_newline())
     }
 
     pub(crate) fn from_str(slice: &'a str) -> Self {
-        Self {
-            iter: slice.line_byte_slices_with_newline(),
-            prev: None,
-        }
+        Self::new(slice.line_byte_slices_with_newline())
     }
 }
 
