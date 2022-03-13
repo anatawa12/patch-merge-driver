@@ -16,14 +16,14 @@ pub(crate) struct ContextPatch<'a> {
 pub(crate) struct ContextHank<'a> {
     pub(crate) comment: Vec<&'a [u8]>,
     pub(crate) stars_line: &'a [u8],
-    pub(crate) from_header_line: &'a [u8],
-    pub(crate) from_header: (usize, usize),
+    pub(crate) old_header_line: &'a [u8],
+    pub(crate) old_header: (usize, usize),
     /// empty vec if omitted
-    pub(crate) from_lines: Vec<ContextHankLine<'a>>,
-    pub(crate) to_header_line: &'a [u8],
-    pub(crate) to_header: (usize, usize),
+    pub(crate) old_lines: Vec<ContextHankLine<'a>>,
+    pub(crate) new_header_line: &'a [u8],
+    pub(crate) new_header: (usize, usize),
     /// empty vec if omitted
-    pub(crate) to_lines: Vec<ContextHankLine<'a>>,
+    pub(crate) new_lines: Vec<ContextHankLine<'a>>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -79,26 +79,26 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
         comment: Vec<&'a [u8]>,
         stars_line: &'a [u8],
     ) -> Result<ContextHank<'a>, DiffParseError> {
-        let (from_line, from_begin, from_end) =
+        let (old_line, old_begin, old_end) =
             parse_context_header(self.next().expect("expected context header"))?;
-        let from_lines = self.parse_context_hank_lines(b'-', from_begin, from_end)?;
-        let (to_line, to_begin, to_end) =
+        let old_lines = self.parse_context_hank_lines(b'-', old_begin, old_end)?;
+        let (new_line, new_begin, new_end) =
             parse_context_header(self.next().expect("expected context header"))?;
-        let to_lines = self.parse_context_hank_lines(b'+', to_begin, to_end)?;
+        let new_lines = self.parse_context_hank_lines(b'+', new_begin, new_end)?;
 
-        if from_lines.is_empty() && to_lines.is_empty() {
+        if old_lines.is_empty() && new_lines.is_empty() {
             return Err(InvalidHank(Context, NoHankBody));
         }
 
         return Ok(ContextHank {
             comment,
             stars_line,
-            from_header_line: from_line,
-            from_header: (from_begin, from_end),
-            from_lines,
-            to_header_line: to_line,
-            to_header: (to_begin, to_end),
-            to_lines,
+            old_header_line: old_line,
+            old_header: (old_begin, old_end),
+            old_lines,
+            new_header_line: new_line,
+            new_header: (new_begin, new_end),
+            new_lines,
         });
     }
 
@@ -251,9 +251,9 @@ fn parse() {
                         b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
                     ],
                     stars_line: b"***************\n",
-                    from_header_line: b"*** 1,5 ****\n",
-                    from_header: (1, 5),
-                    from_lines: vec![
+                    old_header_line: b"*** 1,5 ****\n",
+                    old_header: (1, 5),
+                    old_lines: vec![
                         AddDel(
                             b"- ",
                             b"The Way that can be told of is not the eternal Way;\n"
@@ -266,9 +266,9 @@ fn parse() {
                         Modified(b"! ", b"The Named is the mother of all things.\n"),
                         Common(b"  ", b"Therefore let there always be non-being,\n"),
                     ],
-                    to_header_line: b"--- 1,4 ----\n",
-                    to_header: (1, 4),
-                    to_lines: vec![
+                    new_header_line: b"--- 1,4 ----\n",
+                    new_header: (1, 4),
+                    new_lines: vec![
                         Common(b"  ", b"The Nameless is the origin of Heaven and Earth;\n"),
                         Modified(b"! ", b"The named is the mother of all things.\n"),
                         Modified(b"!", b"\n"),
@@ -278,12 +278,12 @@ fn parse() {
                 ContextHank {
                     comment: vec![],
                     stars_line: b"***************\n",
-                    from_header_line: b"*** 11 ****\n",
-                    from_header: (11, 11),
-                    from_lines: vec![],
-                    to_header_line: b"--- 10,13 ----\n",
-                    to_header: (10, 13),
-                    to_lines: vec![
+                    old_header_line: b"*** 11 ****\n",
+                    old_header: (11, 11),
+                    old_lines: vec![],
+                    new_header_line: b"--- 10,13 ----\n",
+                    new_header: (10, 13),
+                    new_lines: vec![
                         Common(b"  ", b"  they have different names.\n"),
                         AddDel(b"+ ", b"They both may be called deep and profound.\n"),
                         AddDel(b"+ ", b"Deeper and more profound,\n"),
@@ -336,9 +336,9 @@ fn parse_detext() {
                         b"--- tzu	2002-02-21 23:30:50.442260588 -0800\n",
                     ],
                     stars_line: b"***************\n",
-                    from_header_line: b"*** 1,5 ****\n",
-                    from_header: (1, 5),
-                    from_lines: vec![
+                    old_header_line: b"*** 1,5 ****\n",
+                    old_header: (1, 5),
+                    old_lines: vec![
                         AddDel(
                             b"- ",
                             b"The Way that can be told of is not the eternal Way;\n"
@@ -351,9 +351,9 @@ fn parse_detext() {
                         Modified(b"! ", b"The Named is the mother of all things.\n"),
                         Common(b"  ", b"Therefore let there always be non-being,\n"),
                     ],
-                    to_header_line: b"--- 1,4 ----\n",
-                    to_header: (1, 4),
-                    to_lines: vec![
+                    new_header_line: b"--- 1,4 ----\n",
+                    new_header: (1, 4),
+                    new_lines: vec![
                         Common(b"  ", b"The Nameless is the origin of Heaven and Earth;\n"),
                         Modified(b"! ", b"The named is the mother of all things.\n"),
                         Modified(b"!", b"\n"),
@@ -363,12 +363,12 @@ fn parse_detext() {
                 ContextHank {
                     comment: vec![],
                     stars_line: b"***************\n",
-                    from_header_line: b"*** 11 ****\n",
-                    from_header: (11, 11),
-                    from_lines: vec![],
-                    to_header_line: b"--- 10,13 ----\n",
-                    to_header: (10, 13),
-                    to_lines: vec![
+                    old_header_line: b"*** 11 ****\n",
+                    old_header: (11, 11),
+                    old_lines: vec![],
+                    new_header_line: b"--- 10,13 ----\n",
+                    new_header: (10, 13),
+                    new_lines: vec![
                         Common(b"  ", b"  they have different names.\n"),
                         AddDel(b"+ ", b"They both may be called deep and profound.\n"),
                         AddDel(b"+ ", b"Deeper and more profound,\n"),

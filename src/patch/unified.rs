@@ -14,10 +14,10 @@ pub(crate) struct UnifiedPatch<'a> {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct UnifiedHeader<'a> {
     pub(crate) line: &'a [u8],
-    pub(crate) from_offset: usize,
-    pub(crate) from_count: usize,
-    pub(crate) to_offset: usize,
-    pub(crate) to_count: usize,
+    pub(crate) old_offset: usize,
+    pub(crate) old_count: usize,
+    pub(crate) new_offset: usize,
+    pub(crate) new_count: usize,
     pub(crate) tailing: &'a [u8],
 }
 
@@ -75,34 +75,34 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
     ) -> Result<UnifiedHank<'a>, DiffParseError> {
         let header = parse_unified_header(self.next().expect("expected unified header"))?;
         let mut lines = vec![];
-        let mut from_read: usize = 0;
-        let mut to_read: usize = 0;
+        let mut old_read: usize = 0;
+        let mut new_read: usize = 0;
 
         loop {
             let some = return_if_none!(self.next(), Err(UnexpectedEof));
             if some.starts_with(b"-") {
                 lines.push(Delete(b"-", some.split_at(1).1));
-                from_read += 1;
+                old_read += 1;
             } else if some.starts_with(b"+") {
                 lines.push(Add(b"+", some.split_at(1).1));
-                to_read += 1;
+                new_read += 1;
             } else if some.starts_with(b" ") {
                 lines.push(Common(b" ", some.split_at(1).1));
-                from_read += 1;
-                to_read += 1;
+                old_read += 1;
+                new_read += 1;
             } else if some.is_empty() {
                 lines.push(Common(b"", b""));
-                from_read += 1;
-                to_read += 1;
+                old_read += 1;
+                new_read += 1;
             } else {
                 return Err(InvalidHank(Unified, InvalidIndicator(vec![some[0]])));
             }
 
-            if from_read == header.from_count && to_read == header.to_count {
+            if old_read == header.old_count && new_read == header.new_count {
                 break;
             }
 
-            if from_read > header.from_count || to_read > header.to_count {
+            if old_read > header.old_count || new_read > header.new_count {
                 return Err(TooManyHankLine);
             }
         }
@@ -118,11 +118,11 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
 fn parse_unified_header(header: &[u8]) -> Result<UnifiedHeader, DiffParseError> {
     let line = header;
     let header = header.strip_prefix(b"@@ -").ok_or(InvalidHeader(Unified))?;
-    let (from_offset, from_count, header) =
+    let (old_offset, old_count, header) =
         parse_int_pair(header, |_| 1).ok_or(InvalidHeader(Unified))?;
     let header = header.strip_prefix(b" ").unwrap_or(header);
     let header = return_if_none!(header.strip_prefix(b"+"), Err(InvalidHeader(Unified)));
-    let (to_offset, to_count, header) =
+    let (new_offset, new_count, header) =
         parse_int_pair(header, |_| 1).ok_or(InvalidHeader(Unified))?;
     let header = header.strip_prefix(b" ").unwrap_or(header);
     let header = return_if_none!(header.strip_prefix(b"@"), Err(InvalidHeader(Unified)));
@@ -131,10 +131,10 @@ fn parse_unified_header(header: &[u8]) -> Result<UnifiedHeader, DiffParseError> 
 
     Ok(UnifiedHeader {
         line,
-        from_offset,
-        from_count,
-        to_offset,
-        to_count,
+        old_offset,
+        old_count,
+        new_offset,
+        new_count,
         tailing,
     })
 }
@@ -179,10 +179,10 @@ fn parse() {
                     ],
                     header: UnifiedHeader {
                         line: b"@@ -1,7 +1,6 @@\n",
-                        from_offset: 1,
-                        from_count: 7,
-                        to_offset: 1,
-                        to_count: 6,
+                        old_offset: 1,
+                        old_count: 7,
+                        new_offset: 1,
+                        new_count: 6,
                         tailing: b"\n",
                     },
                     lines: vec![
@@ -207,10 +207,10 @@ fn parse() {
                     comment: vec![],
                     header: UnifiedHeader {
                         line: b"@@ -9,3 +8,6 @@\n",
-                        from_offset: 9,
-                        from_count: 3,
-                        to_offset: 8,
-                        to_count: 6,
+                        old_offset: 9,
+                        old_count: 3,
+                        new_offset: 8,
+                        new_count: 6,
                         tailing: b"\n",
                     },
                     lines: vec![
@@ -268,10 +268,10 @@ fn parse_detect() {
                     ],
                     header: UnifiedHeader {
                         line: b"@@ -1,7 +1,6 @@\n",
-                        from_offset: 1,
-                        from_count: 7,
-                        to_offset: 1,
-                        to_count: 6,
+                        old_offset: 1,
+                        old_count: 7,
+                        new_offset: 1,
+                        new_count: 6,
                         tailing: b"\n",
                     },
                     lines: vec![
@@ -296,10 +296,10 @@ fn parse_detect() {
                     comment: vec![],
                     header: UnifiedHeader {
                         line: b"@@ -9,3 +8,6 @@\n",
-                        from_offset: 9,
-                        from_count: 3,
-                        to_offset: 8,
-                        to_count: 6,
+                        old_offset: 9,
+                        old_count: 3,
+                        new_offset: 8,
+                        new_count: 6,
                         tailing: b"\n",
                     },
                     lines: vec![

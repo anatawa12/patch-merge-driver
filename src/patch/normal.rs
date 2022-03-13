@@ -41,11 +41,11 @@ pub(crate) struct NormalDeleteHank<'a> {
 pub(crate) struct NormalReplaceHank<'a> {
     pub(crate) comment: Vec<&'a [u8]>,
     pub(crate) header_line: &'a [u8],
-    pub(crate) from_begin: usize,
-    pub(crate) to_begin: usize,
-    pub(crate) from_lines: Vec<NormalHankLine<'a>>,
+    pub(crate) old_begin: usize,
+    pub(crate) new_begin: usize,
+    pub(crate) old_lines: Vec<NormalHankLine<'a>>,
     pub(crate) separator: &'a [u8],
-    pub(crate) to_lines: Vec<NormalHankLine<'a>>,
+    pub(crate) new_lines: Vec<NormalHankLine<'a>>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -98,14 +98,14 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
                 NormalHank::Add(NormalAddHank {
                     comment,
                     header_line: header.line,
-                    insert_to: header.from.0,
+                    insert_to: header.old.0,
                     inserted_begin: header.to.0,
                     separator,
                     lines,
                 })
             }
             Command::Replace => {
-                let from_lines = self.parse_hank_body(header.from, b'<')?;
+                let old_lines = self.parse_hank_body(header.old, b'<')?;
                 let separator = match self.peek() {
                     None => return Err(UnexpectedEof),
                     Some(line) if line.starts_with(b"---") => {
@@ -116,24 +116,24 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
                         return Err(InvalidHank(Normal, InvalidIndicator(line.to_owned())))
                     }
                 };
-                let to_lines = self.parse_hank_body(header.to, b'>')?;
+                let new_lines = self.parse_hank_body(header.to, b'>')?;
                 NormalHank::Replace(NormalReplaceHank {
                     comment,
                     header_line: header.line,
-                    from_begin: header.from.0,
-                    to_begin: header.to.0,
-                    from_lines,
+                    old_begin: header.old.0,
+                    new_begin: header.to.0,
+                    old_lines,
                     separator,
-                    to_lines,
+                    new_lines,
                 })
             }
             Command::Deletion => {
                 let separator = self.parse_optional_separator();
-                let lines = self.parse_hank_body(header.from, b'<')?;
+                let lines = self.parse_hank_body(header.old, b'<')?;
                 NormalHank::Delete(NormalDeleteHank {
                     comment,
                     header_line: header.line,
-                    delete_begin: header.from.0,
+                    delete_begin: header.old.0,
                     deleted_at: header.to.0,
                     lines,
                     separator,
@@ -184,7 +184,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
 
 fn parse_normal_header(header: &[u8]) -> Result<NormalHeader, DiffParseError> {
     let line = header;
-    let (from_begin, from_end, header) =
+    let (old_begin, old_end, header) =
         parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
     let cmd = match return_if_none!(header.get(0), Err(InvalidHeader(Normal))) {
         b'a' => Command::Addition,
@@ -193,21 +193,21 @@ fn parse_normal_header(header: &[u8]) -> Result<NormalHeader, DiffParseError> {
         _ => return Err(InvalidHeader(Normal)),
     };
     let header = &header[1..];
-    let (to_begin, to_end, _header) = parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
+    let (new_begin, new_end, _header) = parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
 
     match cmd {
         Command::Addition => {
-            if !(from_begin == from_end && to_begin <= to_end) {
+            if !(old_begin == old_end && new_begin <= new_end) {
                 return Err(InvalidHeader(Normal));
             }
         }
         Command::Replace => {
-            if !(from_begin <= from_end && to_begin <= to_end) {
+            if !(old_begin <= old_end && new_begin <= new_end) {
                 return Err(InvalidHeader(Normal));
             }
         }
         Command::Deletion => {
-            if !(from_begin <= from_end && to_begin == to_end) {
+            if !(old_begin <= old_end && new_begin == new_end) {
                 return Err(InvalidHeader(Normal));
             }
         }
@@ -215,16 +215,16 @@ fn parse_normal_header(header: &[u8]) -> Result<NormalHeader, DiffParseError> {
 
     Ok(NormalHeader {
         line,
-        from: (from_begin, from_end),
+        old: (old_begin, old_end),
         cmd,
-        to: (to_begin, to_end),
+        to: (new_begin, new_end),
     })
 }
 
 #[derive(Debug, Eq, PartialEq)]
 struct NormalHeader<'a> {
     line: &'a [u8],
-    from: (usize, usize),
+    old: (usize, usize),
     cmd: Command,
     to: (usize, usize),
 }
@@ -282,11 +282,11 @@ fn parse() {
                 NormalHank::Replace(NormalReplaceHank {
                     comment: vec![],
                     header_line: b"4c2,3\n",
-                    from_begin: 4,
-                    to_begin: 2,
-                    from_lines: vec![NHL(b"< ", b"The Named is the mother of all things.\n")],
+                    old_begin: 4,
+                    new_begin: 2,
+                    old_lines: vec![NHL(b"< ", b"The Named is the mother of all things.\n")],
                     separator: b"---\n",
-                    to_lines: vec![
+                    new_lines: vec![
                         NHL(b"> ", b"The named is the mother of all things.\n"),
                         NHL(b"> ", b"\n"),
                     ]
@@ -355,11 +355,11 @@ fn parse_detect() {
                 NormalHank::Replace(NormalReplaceHank {
                     comment: vec![],
                     header_line: b"4c2,3\n",
-                    from_begin: 4,
-                    to_begin: 2,
-                    from_lines: vec![NHL(b"< ", b"The Named is the mother of all things.\n"),],
+                    old_begin: 4,
+                    new_begin: 2,
+                    old_lines: vec![NHL(b"< ", b"The Named is the mother of all things.\n"),],
                     separator: b"---\n",
-                    to_lines: vec![
+                    new_lines: vec![
                         NHL(b"> ", b"The named is the mother of all things.\n"),
                         NHL(b"> ", b"\n"),
                     ]
