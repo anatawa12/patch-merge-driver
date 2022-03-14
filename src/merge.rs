@@ -1,17 +1,14 @@
-use crate::patch::{DiffParseError, Format, Patch, PatchParser};
+use crate::patch::Patch::{Comment, Context, Unified};
+use crate::patch::{Patch, PatchParser};
 use clap::Parser;
-use memmap::{Mmap, MmapMut};
+use memmap::Mmap;
 use std::env::var_os;
-use std::ffi::OsString;
-use std::fmt::Display;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::{Seek, SeekFrom};
-use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use Patch::Normal;
-use crate::patch::Patch::{Comment, Context, Unified};
 
 #[derive(Parser)]
 /// Merges two patch files into one
@@ -31,7 +28,8 @@ pub(crate) fn main(options: &Options) {
         open_mmap(&options.original, false).expect("cannot open original file");
     let (current_file, current_m) =
         open_mmap(&options.current, true).expect("cannot open current file");
-    let (others_file, others_m) = open_mmap(&options.others, false).expect("cannot open others file");
+    let (others_file, others_m) =
+        open_mmap(&options.others, false).expect("cannot open others file");
 
     let (original, current, others) = match eq_bytes(&original_m, &current_m, &others_m) {
         TEQ::AB => return copy_file(current_file, current_m, &others_m),
@@ -57,7 +55,7 @@ pub(crate) fn main(options: &Options) {
                 eprintln!("error parsing input files. aborting and fall backing to git merge-file");
 
                 call_git_merge_file(options);
-            },
+            }
         },
     };
     // close fd
@@ -80,9 +78,18 @@ pub(crate) fn main(options: &Options) {
         }
         (r, c, o) => {
             eprintln!("patch file format mismatch found. falling back to git merge-file");
-            eprintln!("original format: {}", r.format().map(|f| f.name()).unwrap_or("comment only"));
-            eprintln!("current  format: {}", c.format().map(|f| f.name()).unwrap_or("comment only"));
-            eprintln!("others   format: {}", o.format().map(|f| f.name()).unwrap_or("comment only"));
+            eprintln!(
+                "original format: {}",
+                r.format().map(|f| f.name()).unwrap_or("comment only")
+            );
+            eprintln!(
+                "current  format: {}",
+                c.format().map(|f| f.name()).unwrap_or("comment only")
+            );
+            eprintln!(
+                "others   format: {}",
+                o.format().map(|f| f.name()).unwrap_or("comment only")
+            );
             call_git_merge_file(options)
         }
     }

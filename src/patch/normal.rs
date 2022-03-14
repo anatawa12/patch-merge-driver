@@ -193,7 +193,8 @@ fn parse_normal_header(header: &[u8]) -> Result<NormalHeader, DiffParseError> {
         _ => return Err(InvalidHeader(Normal)),
     };
     let header = &header[1..];
-    let (new_begin, new_end, _header) = parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
+    let (new_begin, new_end, _header) =
+        parse_int_pair(header, |x| x).ok_or(InvalidHeader(Normal))?;
 
     match cmd {
         Command::Addition => {

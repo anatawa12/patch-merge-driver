@@ -114,7 +114,7 @@ pub(crate) enum Patch<'a> {
     Comment(Vec<&'a [u8]>),
 }
 
-impl <'a> Patch<'a> {
+impl<'a> Patch<'a> {
     pub(crate) fn format(&self) -> Option<Format> {
         match self {
             Patch::Unified(_) => Some(Format::Unified),
