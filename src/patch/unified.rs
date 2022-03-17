@@ -1,7 +1,7 @@
 use crate::patch::DiffParseError::{InvalidHank, InvalidHeader, TooManyHankLine, UnexpectedEof};
 use crate::patch::Format::Unified;
 use crate::patch::HankErrorKind::InvalidIndicator;
-use crate::patch::{parse_int_pair, DiffParseError, PatchParser};
+use crate::patch::{find_name, parse_int_pair, DiffParseError, PatchParser};
 use crate::return_if_none;
 use UnifiedHankLine::{Add, Common, Delete};
 
@@ -33,6 +33,48 @@ pub(crate) enum UnifiedHankLine<'a> {
     Delete(&'a [u8], &'a [u8]),
     Add(&'a [u8], &'a [u8]),
     Common(&'a [u8], &'a [u8]),
+}
+
+impl<'a> super::PatchFile<'a> for UnifiedPatch<'a> {
+    type Hank = UnifiedHank<'a>;
+
+    fn hanks(&self) -> &[Self::Hank] {
+        &self.hanks
+    }
+
+    fn tailing_comments(&self) -> &[&'a [u8]] {
+        &self.tailing_comment
+    }
+}
+
+impl<'a> super::PatchHank<'a> for UnifiedHank<'a> {
+    fn comment(&self) -> &[&'a [u8]] {
+        &self.comment
+    }
+
+    fn old_name(&self) -> Option<&'a [u8]> {
+        find_name(&self.comment, b"--- ")
+    }
+
+    fn new_name(&self) -> Option<&'a [u8]> {
+        find_name(&self.comment, b"+++ ")
+    }
+
+    fn old_first_line_num(&self) -> usize {
+        self.header.old_offset
+    }
+
+    fn old_last_line_num(&self) -> usize {
+        self.header.old_offset + self.header.old_count - 1
+    }
+
+    fn new_first_line_num(&self) -> usize {
+        self.header.new_offset
+    }
+
+    fn new_last_line_num(&self) -> usize {
+        self.header.new_offset + self.header.new_count - 1
+    }
 }
 
 impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {

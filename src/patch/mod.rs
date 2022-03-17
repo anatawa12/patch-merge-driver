@@ -205,3 +205,38 @@ fn parse_int_pair<T: From<usize>>(
     };
     Some((first, second, header))
 }
+
+pub(crate) trait PatchFile<'a> {
+    type Hank: PatchHank<'a>;
+
+    fn hanks(&self) -> &[Self::Hank];
+    fn tailing_comments(&self) -> &[&'a [u8]];
+}
+
+// 実装方針
+// git diffはindexでコンフリクトが生成されるようにする。
+// *** a/main1.rs	Sat Mar  5 12:49:50 2022
+//
+pub(crate) trait PatchHank<'a> {
+    fn comment(&self) -> &[&'a [u8]];
+    fn old_name(&self) -> Option<&'a [u8]>;
+    fn new_name(&self) -> Option<&'a [u8]>;
+
+    fn old_first_line_num(&self) -> usize;
+    fn old_last_line_num(&self) -> usize;
+    fn new_first_line_num(&self) -> usize;
+    fn new_last_line_num(&self) -> usize;
+}
+
+fn find_name<'a>(comment: &[&'a [u8]], heading: &[u8]) -> Option<&'a [u8]> {
+    comment.iter().find_map(|line| {
+        let line = line.strip_prefix(heading)?;
+        let line = line
+            .iter()
+            .enumerate()
+            .rfind(|(_, &b)| b == b'\t')
+            .map(|(i, _)| &line[..i])
+            .unwrap_or(line);
+        Some(line)
+    })
+}

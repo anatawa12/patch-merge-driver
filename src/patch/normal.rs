@@ -51,6 +51,68 @@ pub(crate) struct NormalReplaceHank<'a> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NormalHankLine<'a>(pub(crate) &'a [u8], pub(crate) &'a [u8]);
 
+impl<'a> super::PatchFile<'a> for NormalPatch<'a> {
+    type Hank = NormalHank<'a>;
+
+    fn hanks(&self) -> &[Self::Hank] {
+        &self.hanks
+    }
+
+    fn tailing_comments(&self) -> &[&'a [u8]] {
+        &self.tailing_comment
+    }
+}
+
+impl<'a> super::PatchHank<'a> for NormalHank<'a> {
+    fn comment(&self) -> &[&'a [u8]] {
+        match self {
+            NormalHank::Add(h) => &h.comment,
+            NormalHank::Delete(h) => &h.comment,
+            NormalHank::Replace(h) => &h.comment,
+        }
+    }
+
+    fn old_name(&self) -> Option<&'a [u8]> {
+        None
+    }
+
+    fn new_name(&self) -> Option<&'a [u8]> {
+        None
+    }
+
+    fn old_first_line_num(&self) -> usize {
+        match self {
+            NormalHank::Add(h) => h.insert_to,
+            NormalHank::Delete(h) => h.delete_begin,
+            NormalHank::Replace(h) => h.old_begin,
+        }
+    }
+
+    fn old_last_line_num(&self) -> usize {
+        match self {
+            NormalHank::Add(h) => h.insert_to - 1,
+            NormalHank::Delete(h) => h.delete_begin + h.lines.len() - 1,
+            NormalHank::Replace(h) => h.old_begin + h.old_lines.len() - 1,
+        }
+    }
+
+    fn new_first_line_num(&self) -> usize {
+        match self {
+            NormalHank::Add(h) => h.inserted_begin,
+            NormalHank::Delete(h) => h.deleted_at,
+            NormalHank::Replace(h) => h.new_begin,
+        }
+    }
+
+    fn new_last_line_num(&self) -> usize {
+        match self {
+            NormalHank::Add(h) => h.inserted_begin + h.lines.len() - 1,
+            NormalHank::Delete(h) => h.deleted_at - 1,
+            NormalHank::Replace(h) => h.new_begin + h.new_lines.len() - 1,
+        }
+    }
+}
+
 impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {
     /// parses normal patch. non-normal patch will be parsed as comment or returns error
     pub(crate) fn parse_normal(&mut self) -> Result<NormalPatch<'a>, DiffParseError> {

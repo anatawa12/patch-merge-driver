@@ -1,7 +1,7 @@
 use crate::patch::DiffParseError::{InvalidHank, InvalidHeader, UnexpectedEof};
 use crate::patch::Format::Context;
 use crate::patch::HankErrorKind::{InvalidIndicator, NoHankBody};
-use crate::patch::{parse_int_pair, DiffParseError, PatchParser};
+use crate::patch::{find_name, parse_int_pair, DiffParseError, PatchParser};
 use crate::util::SliceExt;
 use std::hint::unreachable_unchecked;
 use ContextHankLine::{AddDel, Common, Modified};
@@ -17,6 +17,7 @@ pub(crate) struct ContextHank<'a> {
     pub(crate) comment: Vec<&'a [u8]>,
     pub(crate) stars_line: &'a [u8],
     pub(crate) old_header_line: &'a [u8],
+    // first-last (both inclusive)
     pub(crate) old_header: (usize, usize),
     /// empty vec if omitted
     pub(crate) old_lines: Vec<ContextHankLine<'a>>,
@@ -31,6 +32,48 @@ pub(crate) enum ContextHankLine<'a> {
     Modified(&'a [u8], &'a [u8]),
     AddDel(&'a [u8], &'a [u8]),
     Common(&'a [u8], &'a [u8]),
+}
+
+impl<'a> super::PatchFile<'a> for ContextPatch<'a> {
+    type Hank = ContextHank<'a>;
+
+    fn hanks(&self) -> &[Self::Hank] {
+        &self.hanks
+    }
+
+    fn tailing_comments(&self) -> &[&'a [u8]] {
+        &self.tailing_comment
+    }
+}
+
+impl<'a> super::PatchHank<'a> for ContextHank<'a> {
+    fn comment(&self) -> &[&'a [u8]] {
+        &self.comment
+    }
+
+    fn old_name(&self) -> Option<&'a [u8]> {
+        find_name(&self.comment, b"*** ")
+    }
+
+    fn new_name(&self) -> Option<&'a [u8]> {
+        find_name(&self.comment, b"--- ")
+    }
+
+    fn old_first_line_num(&self) -> usize {
+        self.old_header.0
+    }
+
+    fn old_last_line_num(&self) -> usize {
+        self.old_header.1
+    }
+
+    fn new_first_line_num(&self) -> usize {
+        self.new_header.0
+    }
+
+    fn new_last_line_num(&self) -> usize {
+        self.new_header.0
+    }
 }
 
 impl<'a, I: Iterator<Item = &'a [u8]>> PatchParser<'a, I> {

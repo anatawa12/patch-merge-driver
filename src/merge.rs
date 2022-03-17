@@ -1,5 +1,5 @@
 use crate::patch::Patch::{Comment, Context, Unified};
-use crate::patch::{Patch, PatchParser};
+use crate::patch::{Patch, PatchFile, PatchHank, PatchParser};
 use clap::Parser;
 use memmap::Mmap;
 use std::env::var_os;
@@ -62,14 +62,17 @@ pub(crate) fn main(options: &Options) {
     drop((original_file, current_file, others_file));
 
     match (original, current, others) {
-        (Normal(original), Normal(current), Normal(others)) => {
-            todo!("Normal implementation")
+        (Normal(ref original), Normal(ref current), Normal(ref others)) => {
+            do_merge(original, current, others)
+            // TODO: write
         }
-        (Unified(original), Unified(current), Unified(others)) => {
-            todo!("Unified implementation")
+        (Unified(ref original), Unified(ref current), Unified(ref others)) => {
+            do_merge(original, current, others)
+            // TODO: write
         }
-        (Context(original), Context(current), Context(others)) => {
-            todo!("Context implementation")
+        (Context(ref original), Context(ref current), Context(ref others)) => {
+            do_merge(original, current, others)
+            // TODO: write
         }
         (Comment(_), Comment(_), Comment(_)) => {
             eprintln!("comment only found. fallback to git merge-file.");
@@ -91,6 +94,193 @@ pub(crate) fn main(options: &Options) {
                 o.format().map(|f| f.name()).unwrap_or("comment only")
             );
             call_git_merge_file(options)
+        }
+    }
+}
+
+// a: ancestor
+// o: ours
+// t: theirs
+
+#[derive(Eq, PartialEq, Copy, Clone)]
+enum FileId<'a, 'b> {
+    File(&'a [u8], &'a [u8]),
+    Comment(&'b [&'a [u8]]),
+}
+type NamedHanks<'a, 'b, H> = (FileId<'a, 'b>, &'b [H]);
+
+struct ThreeFile<'a, 'b, H: PatchHank<'a>> {
+    id: FileId<'a, 'b>,
+    a_hanks: Option<&'b [H]>,
+    o_hanks: Option<&'b [H]>,
+    t_hanks: Option<&'b [H]>,
+}
+
+impl<'a, 'b, H: PatchHank<'a>> ThreeFile<'a, 'b, H> {
+    pub(crate) fn new_ours(named: NamedHanks<'a, 'b, H>) -> Self {
+        ThreeFile {
+            id: named.0,
+            a_hanks: None,
+            o_hanks: Some(named.1),
+            t_hanks: None,
+        }
+    }
+
+    pub(crate) fn new_theirs(named: NamedHanks<'a, 'b, H>) -> Self {
+        ThreeFile {
+            id: named.0,
+            a_hanks: None,
+            o_hanks: None,
+            t_hanks: Some(named.1),
+        }
+    }
+
+    pub(crate) fn new_theirs_ours(
+        theirs: NamedHanks<'a, 'b, H>,
+        ours: NamedHanks<'a, 'b, H>,
+    ) -> Self {
+        debug_assert_eq!(theirs.0 == ours.0);
+        ThreeFile {
+            id: ours.0,
+            a_hanks: None,
+            o_hanks: Some(ours.1),
+            t_hanks: Some(theirs.1),
+        }
+    }
+}
+
+fn do_merge<'a, P: PatchFile<'a>>(a_patch: &P, o_patch: &P, t_patch: &P) {
+    let a_files = collect_hanks_by_file_name(a_patch);
+    let o_files = collect_hanks_by_file_name(o_patch);
+    let t_files = collect_hanks_by_file_name(t_patch);
+    let a_files = a_files.as_slice();
+    let mut o_files = o_files.as_slice();
+    let mut t_files = t_files.as_slice();
+    let mut elements = Vec::<ThreeFile<P::Hank>>::with_capacity(o_files.len());
+
+    for (id, a_hanks) in a_files.iter() {
+        let (o_skipped, o_hanks) = find_by_id(&mut o_files, *id);
+        let (t_skipped, t_hanks) = find_by_id(&mut t_files, *id);
+
+        // process skipped
+        two_way_merge(o_skipped, t_skipped, &mut elements);
+
+        elements.push(ThreeFile {
+            id: *id,
+            a_hanks: Some(a_hanks),
+            o_hanks: o_hanks.map(|(_, a)| *a),
+            t_hanks: t_hanks.map(|(_, a)| *a),
+        })
+    }
+
+    // merge rest
+    two_way_merge(o_files, t_files, &mut elements);
+
+    todo!("do merge")
+}
+
+fn two_way_merge<'a, 'b, H: PatchHank<'a>>(
+    mut o_files: &[NamedHanks<'a, 'b, H>],
+    mut t_files: &[NamedHanks<'a, 'b, H>],
+    elements: &mut Vec<ThreeFile<'a, 'b, H>>,
+) {
+    while !o_files.is_empty() && !t_files.is_empty() {
+        let o_first = o_files[0];
+        o_files = &o_files[0..];
+        let t_first = t_files[0];
+        t_files = &t_files[0..];
+
+        if o_first.0 == t_first.0 {
+            elements.push(ThreeFile::new_theirs_ours(t_first, o_first));
+        } else {
+            match (
+                find_by_id(&mut o_files, t_first.0),
+                find_by_id(&mut t_files, o_first.0),
+            ) {
+                ((_, None), (_, None)) => {
+                    elements.push(ThreeFile::new_theirs(t_first));
+                    elements.push(ThreeFile::new_ours(o_first));
+                }
+                ((_, None), (t_skipped, Some(&t_found))) => {
+                    elements.push(ThreeFile::new_theirs(t_first));
+                    elements.extend(t_skipped.iter().copied().map(ThreeFile::new_theirs));
+                    elements.push(ThreeFile::new_theirs_ours(t_found, o_first));
+                }
+                ((o_skipped, Some(&o_found)), (_, None)) => {
+                    elements.push(ThreeFile::new_ours(o_first));
+                    elements.extend(o_skipped.iter().copied().map(ThreeFile::new_ours));
+                    elements.push(ThreeFile::new_theirs_ours(t_first, o_found));
+                }
+                ((o_skipped, Some(&o_found)), (t_skipped, Some(&t_found))) => {
+                    if o_skipped.len() < t_skipped.len() {
+                        elements.push(ThreeFile::new_ours(o_first));
+                        elements.extend(o_skipped.iter().copied().map(ThreeFile::new_ours));
+                        elements.push(ThreeFile::new_theirs_ours(t_first, o_found));
+                        elements.extend(t_skipped.iter().copied().map(ThreeFile::new_theirs));
+                        elements.push(ThreeFile::new_theirs(t_found));
+                    } else {
+                        elements.push(ThreeFile::new_theirs(t_first));
+                        elements.extend(t_skipped.iter().copied().map(ThreeFile::new_theirs));
+                        elements.push(ThreeFile::new_theirs_ours(t_found, o_first));
+                        elements.extend(o_skipped.iter().copied().map(ThreeFile::new_ours));
+                        elements.push(ThreeFile::new_ours(o_found));
+                    }
+                }
+            }
+        }
+    }
+
+    if !o_files.is_empty() {
+        elements.extend(o_files.iter().copied().map(ThreeFile::new_ours));
+    }
+
+    if !t_files.is_empty() {
+        elements.extend(t_files.iter().copied().map(ThreeFile::new_theirs));
+    }
+}
+
+fn find_by_id<'a, 'b, 'c, H: PatchHank<'a>>(
+    files: &mut &'c [NamedHanks<'a, 'b, H>],
+    id: FileId,
+) -> (
+    &'c [NamedHanks<'a, 'b, H>],
+    Option<&'c NamedHanks<'a, 'b, H>>,
+) {
+    match files.iter().position(|(fid, _)| fid == &id) {
+        None => (&[], None),
+        Some(idx) => {
+            let to_process = &files[..idx];
+            let element = &files[idx];
+            *files = &files[idx + 1..];
+            (to_process, Some(element))
+        }
+    }
+}
+
+fn collect_hanks_by_file_name<'a, P: PatchFile<'a>>(p: &P) -> Vec<NamedHanks<'a, '_, P::Hank>> {
+    let mut hanks = p.hanks();
+    let mut files = Vec::new();
+
+    while let Some(i) = hanks.iter().position(|h| !h.comment().is_empty()) {
+        append_to_files(&mut files, &hanks[..i]);
+        hanks = &hanks[i..];
+    }
+
+    append_to_files(&mut files, hanks);
+
+    return files;
+
+    #[inline(always)]
+    fn append_to_files<'a, 'b, H: PatchHank<'a>>(
+        files: &mut Vec<NamedHanks<'a, 'b, H>>,
+        hanks: &'b [H],
+    ) {
+        if !hanks.is_empty() {
+            let names = match (hanks[0].old_name(), hanks[0].new_name()) {
+                (Some(old), Some(new)) => FileId::File(old, new),
+                _ => FileId::Comment(hanks[0].comment()),
+            };
+            files.push((names, hanks));
         }
     }
 }
@@ -138,7 +328,7 @@ fn call_git_merge_file(options: &Options) -> ! {
 fn copy_file(mut to: File, map: Mmap, body: &[u8]) {
     drop(map);
     to.set_len(body.len() as u64).expect("can't write");
-    to.seek(SeekFrom::Start(0));
+    to.seek(SeekFrom::Start(0)).expect("can't write");
     io::copy(&mut &*body, &mut to).expect("can't write");
 }
 
