@@ -2,6 +2,8 @@ use crate::patch::Patch::{Comment, Context, Unified};
 use crate::patch::{Patch, PatchFile, PatchHank, PatchParser};
 use clap::Parser;
 use memmap::Mmap;
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::env::var_os;
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -102,7 +104,7 @@ pub(crate) fn main(options: &Options) {
 // o: ours
 // t: theirs
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 enum FileId<'a, 'b> {
     File(&'a [u8], &'a [u8]),
     Comment(&'b [&'a [u8]]),
@@ -139,7 +141,7 @@ impl<'a, 'b, H: PatchHank<'a>> ThreeFile<'a, 'b, H> {
         theirs: NamedHanks<'a, 'b, H>,
         ours: NamedHanks<'a, 'b, H>,
     ) -> Self {
-        debug_assert_eq!(theirs.0 == ours.0);
+        debug_assert_eq!(theirs.0, ours.0);
         ThreeFile {
             id: ours.0,
             a_hanks: None,
@@ -176,7 +178,111 @@ fn do_merge<'a, P: PatchFile<'a>>(a_patch: &P, o_patch: &P, t_patch: &P) {
     // merge rest
     two_way_merge(o_files, t_files, &mut elements);
 
+    elements
+        .iter()
+        .map(|file| match (file.a_hanks, file.o_hanks, file.t_hanks) {
+            (Some(a_hanks), Some(b_hanks), None) | (Some(a_hanks), None, Some(b_hanks)) => {
+                do_merge_file_old_new(a_hanks, b_hanks)
+            }
+            (Some(a_hanks), Some(o_hanks), Some(t_hanks)) => {
+                do_merge_file_three_way(a_hanks, o_hanks, t_hanks)
+            }
+            (None, Some(o_hanks), Some(t_hanks)) => do_merge_file_two_way(o_hanks, t_hanks),
+            (Some(hanks), None, None) | (None, Some(hanks), None) | (None, None, Some(hanks)) => {
+                Ok(hanks.into())
+            }
+            (None, None, None) => unreachable!(),
+        });
     todo!("do merge")
+}
+
+fn do_merge_file_old_new<'a, 'b, H: PatchHank<'a>>(
+    old_hanks: &'b [H],
+    new_hanks: &'b [H],
+) -> Result<Cow<'b, [H]>, ()> {
+    if is_there_contradiction(old_hanks, &[new_hanks]) {
+        return Err(());
+    }
+
+    // if there's no contradiction, return new_hanks
+    Ok(new_hanks.into())
+}
+
+fn do_merge_file_three_way<'a, 'b, H: PatchHank<'a>>(
+    a_hanks: &'b [H],
+    o_hanks: &'b [H],
+    t_hanks: &'b [H],
+) -> Result<Cow<'b, [H]>, ()> {
+    if is_there_contradiction(a_hanks, &[o_hanks, t_hanks]) {
+        return Err(());
+    }
+
+    todo!("three-way-merge")
+}
+
+fn do_merge_file_two_way<'a, 'b, H: PatchHank<'a>>(
+    o_hanks: &'b [H],
+    t_hanks: &'b [H],
+) -> Result<Cow<'b, [H]>, ()> {
+    if is_there_contradiction(o_hanks, &[t_hanks]) {
+        return Err(());
+    }
+
+    let mut result_hanks: Vec<H> = Vec::new();
+
+    let mut o_iter = o_hanks.iter().peekable();
+    let mut t_iter = t_hanks.iter().peekable();
+
+    while let (Some(&o_peek), Some(&t_peek)) = (o_iter.peek(), t_iter.peek()) {
+        if o_peek.old_last_line_num() < t_peek.old_first_line_num() {
+            result_hanks.push(o_peek.clone());
+            o_iter.next();
+        } else if t_peek.old_last_line_num() < o_peek.old_first_line_num() {
+            result_hanks.push(t_peek.clone());
+            t_iter.next();
+        } else {
+            todo!("merge hank")
+        }
+    }
+
+    // append rest
+    result_hanks.extend(o_iter.cloned());
+    result_hanks.extend(t_iter.cloned());
+
+    Ok(Cow::Owned(result_hanks))
+}
+
+fn is_there_contradiction<'a, 'b, H: PatchHank<'a>>(
+    original: &'b [H],
+    modified: &[&'b [H]],
+) -> bool {
+    // check there's no contradiction between original of both hank
+    let mut original_lines = HashMap::<usize, &'a [u8]>::new();
+    for h in original.iter() {
+        let mut i = h.old_first_line_num();
+        for old_line in h.old_lines() {
+            original_lines.insert(i, old_line);
+            i += 1;
+        }
+    }
+
+    let original_lines = original_lines;
+
+    for hanks in modified {
+        for h in hanks.iter() {
+            let mut i = h.old_first_line_num();
+            for old_line in h.old_lines() {
+                if let Some(&line) = original_lines.get(&i) {
+                    if old_line != line {
+                        return true;
+                    }
+                }
+                i += 1;
+            }
+        }
+    }
+
+    false
 }
 
 fn two_way_merge<'a, 'b, H: PatchHank<'a>>(

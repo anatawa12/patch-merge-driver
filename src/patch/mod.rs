@@ -217,15 +217,20 @@ pub(crate) trait PatchFile<'a> {
 // git diffはindexでコンフリクトが生成されるようにする。
 // *** a/main1.rs	Sat Mar  5 12:49:50 2022
 //
-pub(crate) trait PatchHank<'a> {
+pub(crate) trait PatchHank<'a>: Clone {
+    type OldLinesIter: Iterator<Item = &'a [u8]>;
+    type NewLinesIter: Iterator<Item = &'a [u8]>;
+
     fn comment(&self) -> &[&'a [u8]];
     fn old_name(&self) -> Option<&'a [u8]>;
     fn new_name(&self) -> Option<&'a [u8]>;
 
     fn old_first_line_num(&self) -> usize;
     fn old_last_line_num(&self) -> usize;
+    fn old_lines(&self) -> Self::OldLinesIter;
     fn new_first_line_num(&self) -> usize;
     fn new_last_line_num(&self) -> usize;
+    fn new_lines(&self) -> Self::NewLinesIter;
 }
 
 fn find_name<'a>(comment: &[&'a [u8]], heading: &[u8]) -> Option<&'a [u8]> {
